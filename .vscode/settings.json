@@ -4,6 +4,8 @@
         "stdlib.h": "c",
         "hash_map": "c",
         "algorithm": "c",
-        "format": "c"
+        "format": "c",
+        "charconv": "c",
+        "*.tcc": "c"
     }
 }
