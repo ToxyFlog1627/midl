@@ -33,4 +33,6 @@ Compilation and linking flags for binaries that use this linker.
 
 # References
 [ELF dynamic linking reference specification](https://refspecs.linuxfoundation.org/elf/elf.pdf) \
-[Handy system calls table](https://chromium.googlesource.com/chromiumos/docs/+/master/constants/syscalls.md)
+[Handy system calls table](https://chromium.googlesource.com/chromiumos/docs/+/master/constants/syscalls.md) \
+[GCC inline assembly guide](https://www.ibiblio.org/gferg/ldp/GCC-Inline-Assembly-HOWTO.html#s3) \
+[Source of Linux kernel function which loads ELF](https://github.com/torvalds/linux/blob/master/fs/binfmt_elf.c#L819C12-L819C27)
