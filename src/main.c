@@ -6,7 +6,7 @@
 
 #define STDOUT_FD 1
 
-typedef unsigned long size_t;
+typedef long size_t;  // word size
 
 size_t strlen(const char *msg) {
     size_t len = 0;
@@ -24,7 +24,7 @@ int print(const char *msg) {
 void exit(size_t exit_code) { __asm__ volatile("syscall\n\t" : : "a"(SYS_EXIT), "D"(exit_code)); }
 
 void entry() {
-    int retval = 0;
+    size_t retval;
 
     retval = print("Hello from the dynamic linker!\n");
     if (retval == -1) exit(EXIT_FAILURE);

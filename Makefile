@@ -1,10 +1,10 @@
 CC      := gcc
-CFLAGS  := -O2 -std=c17 -Wall -Wextra -pedantic
+CFLAGS  := -std=c17 -Wall -Wextra -pedantic
 
 ifeq ($(DEBUG),1)
-	CFLAGS += -ggdb -g3 -DDEBUG
+	CFLAGS += -ggdb -g3 -DDEBUG -O0
 else
-	CFLAGS += -s
+	CFLAGS += -s -O2
 endif
 
 SOURCE_DIR  := src
@@ -32,11 +32,11 @@ clean:
 
 .PHONY: $(LOADER)
 $(LOADER): $(OBJECTS)
-	$(CC) $(CFLAGS) -e entry -nostdlib -Wl,--no-dynamic-linker -shared $^ -o $@
+	$(CC) $(CFLAGS) -e entry -nostdlib $^ -o $@ -static-pie
 
 $(OBJECTS_DIR)/%.o: $(SOURCE_DIR)/%.c
 	@mkdir -p $(BUILD_DIR)/$(SOURCE_DIR)
-	$(CC) $(CFLAGS) -fPIE -I src -c $^ -o $@
+	$(CC) $(CFLAGS) -I src -c $^ -o $@ -fno-stack-protector
 
 .PHONY: $(EXAMPLE)
 $(EXAMPLE): $(EXAMPLE_DIR)/example.c $(LOADER) $(LIBRARY)

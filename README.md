@@ -12,13 +12,25 @@ When file is executed, kernel loads an ELF into the memory, loads an appropriate
 Interpreter is then responsible for doing everything needed to run this binary, this includes but not limited to loading libraries and linking them.
 
 ## Building a dynamic linker
-Compilation and linking flags:
-1. `-fPIE` to make position independent, because dynamic linker can get loaded anywhere in the memory.
-2. `-nostdlib` to disable standard library, because it must not dependent on shared libraries
-3. `-Wl,--no-dynamic-linker` to make it statically-linked
-4. (opt) `-e func_name` to change entry point 
+Options required to build linker:
+1. `-pie` to make it position independent, because dynamic linker can get loaded anywhere in the memory.
+2. `-Wl,--no-dynamic-linker` to make it statically-linked \
+Alternatively, `-pie -Wl,--no-dynamic-linker` can be replaced with `-static-pie`.
+3. `-nostdlib` to disable standard library, because it must not dependent on shared libraries
+4. (opt) `-e func_name` to change entry point
+
+If you have built executable correctly, running `file` on it would result in `ELF 64-bit LSB pie executable, x86-64, version 1 (SYSV), static-pie linked`
 
 Entry point must end with an exit syscall, exit code should be set to main's return value.
+
+### -pie, -fpic, -fpie, -fPIC, -fPIE, -static-pie
+What is the differences between all these flags?
+1. `-fpie`(`-fPIE`) imply that you are building an executable, so it disables interposition, whereas `-fpic`(`-fPIC`) enables it. \
+2. The case sets the data mode, lowercase for `-msmall-data` and uppercase for `-mlarge-data`. More on this in [gcc's man page](https://man7.org/linux/man-pages/man1/gcc.1.html).
+
+Flags prefixed with `-f` use specified mode *if possible*, whereas `-pie` always produces PIE.
+
+`-static-pie` is basically an alias for `-static -pie --no-dynamic-linker -z text`.
 
 ## Usage
 **Tested only with GCC on x86_64** 
