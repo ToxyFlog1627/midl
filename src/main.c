@@ -1,7 +1,11 @@
+#define SYS_OPEN 2
+#define SYS_READ 0
 #define SYS_WRITE 1
 #define SYS_EXIT 60
 
-#define STDOUT_FD 1
+#define STDIN 0
+#define STDOUT 1
+#define STDERR 2
 
 #define BUF_SIZE 128
 
@@ -13,18 +17,24 @@ typedef struct {
     char **envp;
 } MainArgs;
 
+size_t syscall(size_t call_num, size_t a1, size_t a2, size_t a3) {
+    size_t retval;
+    __asm__ volatile("syscall\n\t" : "=a"(retval) : "a"(call_num), "D"(a1), "S"(a2), "d"(a3));
+    return retval;
+}
+
+#define open(path, flags, mode) syscall(SYS_OPEN, path, flags, mode)
+#define read(fd, buf, len) syscall(SYS_READ, fd, buf, len)
+#define write(fd, buf, len) syscall(SYS_WRITE, fd, buf, len)
+#define exit(exit_code) syscall(SYS_EXIT, exit_code, 0, 0)
+
 size_t strlen(const char *msg) {
     size_t len = 0;
     while (msg[len] != '\0') len++;
     return len;
 }
 
-size_t print(const char *msg) {
-    size_t retval;
-    size_t msg_len = strlen(msg);
-    __asm__ volatile("syscall\n\t" : "=a"(retval) : "a"(SYS_WRITE), "D"(STDOUT_FD), "S"(msg), "d"(msg_len));
-    return retval;
-}
+size_t print(const char *msg) { return write(STDOUT, msg, strlen(msg)); }
 
 size_t print_num(size_t num) {
     char buffer[BUF_SIZE];
@@ -74,8 +84,6 @@ size_t print_hex(unsigned long num) {
     print(buffer);
     return 0;
 }
-
-void exit(size_t exit_code) { __asm__ volatile("syscall\n\t" : : "a"(SYS_EXIT), "D"(exit_code)); }
 
 MainArgs get_args(size_t rbp) {
     MainArgs args;
