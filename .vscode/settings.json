@@ -6,6 +6,10 @@
         "algorithm": "c",
         "format": "c",
         "charconv": "c",
-        "*.tcc": "c"
+        "*.tcc": "c",
+        "unistd.h": "c",
+        "stdio.h": "c",
+        "fcntl.h": "c",
+        "struct_iovec.h": "c"
     }
 }

@@ -1,15 +1,28 @@
-#define SYS_OPEN 2
 #define SYS_READ 0
 #define SYS_WRITE 1
+#define SYS_OPEN 2
 #define SYS_EXIT 60
 
 #define STDIN 0
 #define STDOUT 1
 #define STDERR 2
 
-#define BUF_SIZE 128
+#define O_RDONLY 0
+#define O_WRONLY 1
+#define O_RDWR 2
 
-typedef long size_t;  // word size
+typedef long word;
+typedef unsigned long size_t;
+typedef unsigned long off_t;
+
+typedef char int8_t;
+typedef unsigned char uint8_t;
+typedef short int int16_t;
+typedef short unsigned int uint16_t;
+typedef int int32_t;
+typedef unsigned int uint32_t;
+typedef long int int64_t;
+typedef long unsigned int uint64_t;
 
 typedef struct {
     int argc;
@@ -17,15 +30,15 @@ typedef struct {
     char **envp;
 } MainArgs;
 
-size_t syscall(size_t call_num, size_t a1, size_t a2, size_t a3) {
-    size_t retval;
+word syscall(word call_num, word a1, word a2, word a3) {
+    word retval;
     __asm__ volatile("syscall\n\t" : "=a"(retval) : "a"(call_num), "D"(a1), "S"(a2), "d"(a3));
     return retval;
 }
 
-#define open(path, flags, mode) syscall(SYS_OPEN, path, flags, mode)
 #define read(fd, buf, len) syscall(SYS_READ, fd, buf, len)
 #define write(fd, buf, len) syscall(SYS_WRITE, fd, buf, len)
+#define open(path, flags, mode) syscall(SYS_OPEN, path, flags, mode)
 #define exit(exit_code) syscall(SYS_EXIT, exit_code, 0, 0)
 
 size_t strlen(const char *msg) {
@@ -34,9 +47,11 @@ size_t strlen(const char *msg) {
     return len;
 }
 
-size_t print(const char *msg) { return write(STDOUT, msg, strlen(msg)); }
+int print(const char *msg) { return write(STDOUT, msg, strlen(msg)); }
 
-size_t print_num(size_t num) {
+#undef BUF_SIZE
+#define BUF_SIZE 128
+int print_num(int64_t num) {
     char buffer[BUF_SIZE];
     size_t i = 0, mask = 1;
 
@@ -45,7 +60,7 @@ size_t print_num(size_t num) {
         num *= -1;
     }
 
-    size_t num_copy = num;
+    int64_t num_copy = num;
     do {
         mask *= 10;
         num_copy /= 10;
@@ -65,7 +80,9 @@ size_t print_num(size_t num) {
     return 0;
 }
 
-size_t print_hex(unsigned long num) {
+#undef BUF_SIZE
+#define BUF_SIZE 32
+int print_hex(uint64_t num) {
     char buffer[BUF_SIZE];
     size_t i = 17;
     for (size_t j = 0; j <= i; j++) buffer[j] = '0';
@@ -74,7 +91,7 @@ size_t print_hex(unsigned long num) {
     buffer[i + 2] = '\0';
 
     while (num > 0) {
-        size_t digit = num % 0x10;
+        uint8_t digit = num % 0x10;
         buffer[i--] = digit > 9 ? ('A' + digit - 10) : ('0' + digit);
 
         num >>= 4;
@@ -85,20 +102,20 @@ size_t print_hex(unsigned long num) {
     return 0;
 }
 
-MainArgs get_args(size_t rbp) {
+MainArgs get_args(word rbp) {
     MainArgs args;
 
     __asm__ volatile("mov (%[ptr]), %[ret]\n\t" : [ret] "=r"(args.argc) : [ptr] "r"(rbp));
-    args.argv = rbp + sizeof(size_t);
+    args.argv = rbp + sizeof(word);
     args.envp = args.argv + args.argc + 1;
 
     return args;
 }
 
 void entry() {
-    size_t rbp;
+    word rbp;
     __asm__ volatile("mov %%rbp, %[ret]\n\t" : [ret] "=r"(rbp));
-    rbp += sizeof(size_t);  // skip previous frame pointer because there is none
+    rbp += sizeof(word);  // skip previous frame pointer because there is none
 
     MainArgs args = get_args(rbp);
 
