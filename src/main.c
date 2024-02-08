@@ -1,6 +1,7 @@
 #define SYS_READ 0
 #define SYS_WRITE 1
 #define SYS_OPEN 2
+#define SYS_CLOSE 3
 #define SYS_EXIT 60
 
 #define STDIN 0
@@ -14,7 +15,7 @@
 typedef long word;
 typedef unsigned long size_t;
 typedef unsigned long off_t;
-
+typedef char bool;
 typedef char int8_t;
 typedef unsigned char uint8_t;
 typedef short int int16_t;
@@ -23,6 +24,36 @@ typedef int int32_t;
 typedef unsigned int uint32_t;
 typedef long int int64_t;
 typedef long unsigned int uint64_t;
+
+#define BUF_SIZE 32
+
+#define ELF_MAGIC 0x464C457F
+#define ELF_64 2
+#define ELF_LSB 1
+#define ELF_VERSION 1
+#define ELF_SYSV_ABI 0
+#define ELF_ABI_VERSION 0
+#define ELF_EXEC_DYNAMIC 3
+#define ELF_AMD64 62
+
+typedef struct {
+    union {
+#pragma pack(push, 1)
+        struct {
+            uint32_t magic;
+            uint8_t class;
+            uint8_t encoding;
+            uint8_t version;
+            uint8_t abi;
+            uint8_t abi_version;
+        } v;
+#pragma pack(pop)
+        uint8_t padding[16];
+    } identifier;
+    uint16_t type;
+    uint16_t arch;
+    uint32_t version;
+} ELFHeader;
 
 typedef struct {
     int argc;
@@ -39,6 +70,7 @@ word syscall(word call_num, word a1, word a2, word a3) {
 #define read(fd, buf, len) syscall(SYS_READ, fd, buf, len)
 #define write(fd, buf, len) syscall(SYS_WRITE, fd, buf, len)
 #define open(path, flags, mode) syscall(SYS_OPEN, path, flags, mode)
+#define close(fd) syscall(SYS_CLOSE, fd, 0, 0)
 #define exit(exit_code) syscall(SYS_EXIT, exit_code, 0, 0)
 
 size_t strlen(const char *msg) {
@@ -49,8 +81,6 @@ size_t strlen(const char *msg) {
 
 int print(const char *msg) { return write(STDOUT, msg, strlen(msg)); }
 
-#undef BUF_SIZE
-#define BUF_SIZE 128
 int print_num(int64_t num) {
     char buffer[BUF_SIZE];
     size_t i = 0, mask = 1;
@@ -80,8 +110,6 @@ int print_num(int64_t num) {
     return 0;
 }
 
-#undef BUF_SIZE
-#define BUF_SIZE 32
 int print_hex(uint64_t num) {
     char buffer[BUF_SIZE];
     size_t i = 17;
@@ -112,12 +140,45 @@ MainArgs get_args(word rbp) {
     return args;
 }
 
+void assert(bool condition, const char *error_msg) {
+    if (!condition) {
+        print(error_msg);
+        if (error_msg[strlen(error_msg) - 1] != '\n') print("\n");
+        exit(1);
+    }
+}
+
+void assert_supported_elf(ELFHeader *header) {
+    assert(header->identifier.v.magic == ELF_MAGIC, "Error parsing ELF header: invalid magic.");
+    assert(header->identifier.v.class == ELF_64, "Error parsing ELF header: ELF is not 64-bit.");
+    assert(header->identifier.v.encoding == ELF_LSB, "Error parsing ELF header: ELF is not LSB.");
+    assert(header->identifier.v.version == ELF_VERSION, "Error parsing ELF header: ELF version mismatch.");
+    assert(header->identifier.v.abi == ELF_SYSV_ABI, "Error parsing ELF header: ABI type mismatch.");
+    assert(header->identifier.v.abi_version == ELF_ABI_VERSION, "Error parsing ELF header: ABI version mismatch.");
+    assert(header->type == ELF_EXEC_DYNAMIC, "Error parsing ELF header: ELF is not of type DYN.");
+    assert(header->arch == ELF_AMD64, "Error parsing ELF header: CPU must be AMD64(x86_64).");
+    assert(header->version == ELF_VERSION, "Error parsing ELF header: ELF version mismatch.");
+}
+
+void read_elf(int fd) {
+    ELFHeader elf;
+    read(fd, &elf, sizeof(elf));
+    assert_supported_elf(&elf);
+
+    // TODO:
+}
+
 void entry() {
     word rbp;
     __asm__ volatile("mov %%rbp, %[ret]\n\t" : [ret] "=r"(rbp));
     rbp += sizeof(word);  // skip previous frame pointer because there is none
 
     MainArgs args = get_args(rbp);
+
+    int fd = open("/proc/self/exe", O_RDONLY, 0);
+    if (fd == -1) exit(1);
+    read_elf(fd);
+    close(fd);
 
     exit(0);
 }
