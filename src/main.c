@@ -1,3 +1,5 @@
+#define NULL 0
+
 #define SYS_READ 0
 #define SYS_WRITE 1
 #define SYS_OPEN 2
@@ -132,10 +134,16 @@ typedef struct {
 } Section;
 
 typedef struct {
+    word type;
+    word value;
+} AuxVar;
+
+typedef struct {
     int argc;
     char **argv;
     char **envp;
-} MainArgs;
+    AuxVar *auxv;
+} Args;
 
 typedef int main_t(int argc, char **argv, char **envp);
 
@@ -148,9 +156,9 @@ word syscall(word call_num, word a1, word a2, word a3) {
 #define read(fd, buf, len) syscall(SYS_READ, fd, buf, len)
 #define write(fd, buf, len) syscall(SYS_WRITE, fd, buf, len)
 #define open(path, flags, mode) syscall(SYS_OPEN, path, flags, mode)
-#define close(fd) syscall(SYS_CLOSE, fd, 0, 0)
+#define close(fd) syscall(SYS_CLOSE, fd, NULL, NULL)
 #define lseek(fd, offset, whence) syscall(SYS_LSEEK, fd, offset, whence)
-#define exit(exit_code) syscall(SYS_EXIT, exit_code, 0, 0)
+#define exit(exit_code) syscall(SYS_EXIT, exit_code, NULL, NULL)
 
 size_t strlen(const char *msg) {
     size_t len = 0;
@@ -209,12 +217,18 @@ int print_hex(uint64_t num) {
     return 0;
 }
 
-MainArgs get_args(word rbp) {
-    MainArgs args;
+Args get_args() {
+    word ptr;
+    __asm__ volatile("mov (%%rbp), %[ret]\n\t" : [ret] "=r"(ptr));
+    ptr += sizeof(word);  // skip old call frame
 
-    __asm__ volatile("mov (%[ptr]), %[ret]\n\t" : [ret] "=r"(args.argc) : [ptr] "r"(rbp));
-    args.argv = rbp + sizeof(word);
+    Args args;
+
+    args.argc = *((size_t *) ptr);
+    args.argv = ptr + sizeof(word);
     args.envp = args.argv + args.argc + 1;
+    args.auxv = args.envp;
+    while (args.auxv->type) args.auxv++;
 
     return args;
 }
@@ -248,16 +262,8 @@ void read_elf(int fd) {
 }
 
 void entry() {
-    word rbp;
-    __asm__ volatile("mov %%rbp, %[ret]\n\t" : [ret] "=r"(rbp));
-    rbp += sizeof(word);  // skip previous frame pointer because there is none
-
-    MainArgs args = get_args(rbp);
-
-    int fd = open("/proc/self/exe", O_RDONLY, 0);
-    if (fd == -1) exit(1);
-    read_elf(fd);
-    close(fd);
+    Args args = get_args();
+    // TODO: read aux_vars, vdso, etc.
 
     exit(0);
 }
