@@ -10,6 +10,11 @@
         "unistd.h": "c",
         "stdio.h": "c",
         "fcntl.h": "c",
-        "struct_iovec.h": "c"
+        "struct_iovec.h": "c",
+        "cstdlib": "c",
+        "auxv.h": "c",
+        "elf.h": "c",
+        "cdefs.h": "c",
+        "hwcap.h": "c"
     }
 }
