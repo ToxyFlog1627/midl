@@ -1,4 +1,5 @@
-#define SYS_WRITE 1
+#include "print.h"
+#include "syscall.h"
 
 #define STDOUT_FD 1
 
@@ -10,7 +11,7 @@ size_t strlen(const char *msg) {
     return len;
 }
 
-void print(char *msg) {
+void print(const char *msg) {
     size_t msg_len = strlen(msg);
-    __asm__ volatile("syscall\n\t" : : "a"(SYS_WRITE), "D"(STDOUT_FD), "S"(msg), "d"(msg_len));
+    write(STDOUT, msg, msg_len);
 }

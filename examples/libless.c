@@ -1,3 +1,5 @@
+// Example that doesn't use any libraries
+
 int main() {
     long retval, len = 0;
     const char *msg = "Hello, World!\n";
