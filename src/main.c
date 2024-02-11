@@ -79,7 +79,8 @@ enum SG_TYPES {
     SG_INTERPRETER,
     SG_NOTE,
     __SG_SHLIB,  // unused
-    SG_PROGRAM_HEADER
+    SG_SEGMENT_TABLE,
+    SG_THREAD_LOCAL_STORAGE
 };
 
 #define SG_EXEC 0x1
@@ -133,16 +134,13 @@ typedef struct {
     uint64_t entry_size;
 } Section;
 
-typedef struct {
-    word type;
-    word value;
-} AuxVar;
+#define AT_PHDR 3
 
 typedef struct {
     int argc;
     char **argv;
     char **envp;
-    AuxVar *auxv;
+    word *auxv;
 } Args;
 
 typedef int main_t(int argc, char **argv, char **envp);
@@ -154,7 +152,7 @@ word syscall(word call_num, word a1, word a2, word a3) {
 }
 
 #define read(fd, buf, len) syscall(SYS_READ, fd, buf, len)
-#define write(fd, buf, len) syscall(SYS_WRITE, fd, buf, len)
+#define write(fd, buf, len) syscall(SYS_WRITE, fd, ((word) (buf)), len)
 #define open(path, flags, mode) syscall(SYS_OPEN, path, flags, mode)
 #define close(fd) syscall(SYS_CLOSE, fd, NULL, NULL)
 #define lseek(fd, offset, whence) syscall(SYS_LSEEK, fd, offset, whence)
@@ -225,10 +223,10 @@ Args get_args() {
     Args args;
 
     args.argc = *((size_t *) ptr);
-    args.argv = ptr + sizeof(word);
+    args.argv = ((char **) (ptr)) + 1;
     args.envp = args.argv + args.argc + 1;
-    args.auxv = args.envp;
-    while (args.auxv->type) args.auxv++;
+    args.auxv = (word *) args.envp;
+    while (*(args.auxv++)) continue;
 
     return args;
 }
@@ -255,15 +253,26 @@ void assert_supported_elf(ELFHeader *header) {
     assert(header->section_entry_size == sizeof(Section), "Error parsing ELF header: section size mismatch!");
 }
 
-void read_elf(int fd) {
-    ELFHeader elf;
-    read(fd, &elf, sizeof(elf));
-    assert_supported_elf(&elf);
+char *get_binary_start(Args *args) {
+    word *var = args->auxv;
+    while (*var != AT_PHDR) {
+        var += 2;
+        assert(var != NULL, "Error parsing auxillary variables: expected AT_PHDR.");
+    }
+
+    Segment *phdr = (Segment *) (*(var + 1));
+    return (char *) (((word) phdr) - phdr->offset);
 }
 
 void entry() {
     Args args = get_args();
-    // TODO: read aux_vars, vdso, etc.
+    char *binary_start = get_binary_start(&args);
 
-    exit(0);
+    ELFHeader *elf = (ELFHeader *) binary_start;
+    assert_supported_elf(elf);
+
+    main_t *main = (main_t *) (binary_start + elf->entry);
+    int exit_code = main(args.argc, args.argv, args.envp);
+
+    exit(exit_code);
 }

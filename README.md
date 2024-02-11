@@ -23,6 +23,11 @@ If you have built executable correctly, running `file` on it would result in `EL
 
 Entry point must end with an exit syscall, exit code should be set to main's return value.
 
+Entry point:
+1. Read main() arguments, i.e. `argc, argv, envp`. They are located on the stack right after old stack frame pointer(which is NULL as entry is the first frame).
+2. Find out where the binary is mapped. It can be obtained from auxillary variables(see `man getauxval` for types/values) which are located on the stack right after `envp`. They are stored as a series of `type, value` pairs, each field is word-sized. Specifically from `AT_PHDR`, which contains the address of the mapped program header.
+3. Now we can offset mapped memory by ELF's entry offset to execute binary.
+
 ### -pie, -fpic, -fpie, -fPIC, -fPIE, -static-pie
 What is the differences between all these flags?
 1. `-fpie`(`-fPIE`) imply that you are building an executable, so it disables interposition, whereas `-fpic`(`-fPIC`) enables it. \

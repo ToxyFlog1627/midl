@@ -42,7 +42,7 @@ $(OBJECTS_DIR)/%.o: $(SOURCE_DIR)/%.c
 $(EXAMPLE): $(EXAMPLE_DIR)/example.c $(LOADER) $(LIBRARY)
 	@mkdir -p $(BUILD_DIR)/$(EXAMPLE_DIR)
 	$(CC) $(CFLAGS) -I $(LIB_SRC_DIR) -c $(EXAMPLE_DIR)/example.c -o $(BUILD_DIR)/$(EXAMPLE_DIR)/example.o
-	$(CC) $(CFLAGS) -Wl,--dynamic-linker,$(shell realpath $(LOADER)) -nostdlib $(BUILD_DIR)/$(EXAMPLE_DIR)/example.o -o $@ -L $(BUILD_DIR) -lprint
+	$(CC) $(CFLAGS) -e main -Wl,--dynamic-linker,$(shell realpath $(LOADER)) -nostdlib $(BUILD_DIR)/$(EXAMPLE_DIR)/example.o -o $@
 
 .PHONY: $(LIBRARY)
 $(LIBRARY): $(LIB_SRC_DIR)/print.c
