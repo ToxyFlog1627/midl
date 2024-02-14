@@ -55,7 +55,7 @@ typedef struct {
             uint8_t abi_version;
         } v;
 #pragma pack(pop)
-        uint8_t padding[16];
+        uint8_t raw[16];
     } identifier;
     uint16_t type;
     uint16_t arch;
@@ -110,7 +110,7 @@ enum SC_TYPES {
     SC_PROGRAM_INFO,
     SC_SYMBOL_TABLE,
     SC_STRING_TABLE,
-    SC_RELA,
+    SC_RELOCATIONS,
     SC_HASH,
     SC_DYNAMIC,
     SC_NOTE,
@@ -134,7 +134,78 @@ typedef struct {
     uint64_t entry_size;
 } Section;
 
+typedef struct {
+    uint64_t offset;
+    union {
+#pragma pack(push, 1)
+        struct {
+            int32_t symbol_index;
+            int32_t type;
+        } v;
+#pragma pack(pop)
+        uint64_t raw;
+    } info;
+    int64_t addend;
+} Relocation;
+
+typedef struct {
+    int32_t name_offset;
+    uint8_t type;
+    uint8_t __unused;
+    uint16_t section_index;
+    uint64_t value;
+    uint64_t size;
+} Symbol;
+
+enum DYNAMIC_TYPES {
+    DT_NULL,
+    DT_NEEDED,
+    DT_PLT_SIZE,
+    DT_PLT_GOT,
+    DT_HASH,
+    DT_STRING_TABLE,
+    DT_SYMBOL_TABLE,
+    DT_RELOCATION,
+    DT_RELOCATION_SIZE,
+    DT_RELOCATION_ENTRY_SIZE,
+    DT_STRING_SIZE,
+    DT_SYMBOL_ENTRY,
+    DT_INIT,
+    DT_FINI,
+    DT_SONAME,
+    DT_RPATH,
+    DT_SYMBOLIC,
+    DT_REL,
+    DT_RELSZ,
+    DT_RELENT,
+    DT_PLTREL,
+    DT_DEBUG,
+    DT_TEXTREL,
+    DT_JMPREL,
+    DT_BIND_NOW,
+    DT_INIT_ARRAY,
+    DT_FINI_ARRAY,
+    DT_INIT_ARRAYSZ,
+    DT_FINI_ARRAYSZ,
+    DT_RUNPATH,
+    DT_FLAGS,
+    DT_ENCODING,
+    DT_PREINIT_ARRAY,
+    DT_PREINIT_ARRAYSZ,
+    DT_SYMTAB_SHNDX,
+    DT_RELRSZ,
+    DT_RELR,
+    DT_RELRENT
+};
+
+typedef struct {
+    int64_t type;
+    uint64_t value;
+} Dynamic;
+
+#define AT_NULL 0
 #define AT_PHDR 3
+#define AT_BASE 7
 
 typedef struct {
     int argc;
@@ -253,7 +324,7 @@ void assert_supported_elf(ELFHeader *header) {
     assert(header->section_entry_size == sizeof(Section), "Error parsing ELF header: section size mismatch!");
 }
 
-char *get_binary_start(Args *args) {
+char *get_program_base(Args *args) {
     word *var = args->auxv;
     while (*var != AT_PHDR) {
         var += 2;
@@ -266,12 +337,11 @@ char *get_binary_start(Args *args) {
 
 void entry() {
     Args args = get_args();
-    char *binary_start = get_binary_start(&args);
-
-    ELFHeader *elf = (ELFHeader *) binary_start;
+    char *prog_base = get_prog_base(&args);
+    ELFHeader *elf = (ELFHeader *) prog_base;
     assert_supported_elf(elf);
 
-    main_t *main = (main_t *) (binary_start + elf->entry);
+    main_t *main = (main_t *) (prog_base + elf->entry);
     int exit_code = main(args.argc, args.argv, args.envp);
 
     exit(exit_code);
