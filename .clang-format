@@ -18,3 +18,6 @@ FixNamespaceComments: false
 NamespaceIndentation: All
 AlignEscapedNewlines: Right
 AlignOperands: AlignAfterOperator
+AlignConsecutiveMacros: AcrossEmptyLines
+AlignConsecutiveShortCaseStatements:
+  Enabled: true

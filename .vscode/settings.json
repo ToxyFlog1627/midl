@@ -15,6 +15,9 @@
         "auxv.h": "c",
         "elf.h": "c",
         "cdefs.h": "c",
-        "hwcap.h": "c"
+        "hwcap.h": "c",
+        "math.h": "c",
+        "errno.h": "c",
+        "dirent.h": "c"
     }
 }
