@@ -372,6 +372,74 @@ Segment *get_segment(char *prog_base, ELFHeader *elf, int type) {
     exit(1);
 }
 
+void memcpy(void *dest, void *src, size_t n) {
+    char *to = (char *) dest, *from = (char *) src;
+    while (n--) *(to++) = *(from++);
+}
+
+void link(char *prog_base, ELFHeader *elf) {
+#define PATH_SIZE 1024
+#define LIB_SIZE  256
+    uint64_t library_offsets[LIB_SIZE] = {0};  // TODO: dynamic array
+    size_t lib_index = 0;
+    void *got = NULL;
+    char *string_table = NULL;
+    uint64_t library_search_paths_offset = NULL;
+
+    Segment *dynamic_segment = get_segment(prog_base, elf, SG_DYNAMIC);
+    for (Dynamic *d = prog_base + dynamic_segment->offset; d->type != DN_NULL; d++) {
+        // TODO: switch?
+        if (d->type == DN_PLT_GOT) {
+            got = (void *) d->value;
+        } else if (d->type == DN_NEEDED) {
+            assert(lib_index <= LIB_SIZE, "Too many shared libraries!");
+            library_offsets[lib_index++] = d->value;
+        } else if (d->type == DN_STRING_TABLE) {
+            string_table = prog_base + d->value;
+        } else if (d->type == DN_LIBRARY_SEARCH_PATHS) {
+            library_search_paths_offset = d->value;
+        }
+    }
+    assert(got != NULL, "Can't locate GOT.");
+    assert(string_table != NULL, "Can't locate string table.");
+    assert(library_search_paths_offset != NULL, "Can't locate library search paths.");
+    // TODO: use default paths (in /etc/ld.config or something)
+
+    char *library_search_path = string_table + library_search_paths_offset;
+    char *p = library_search_path;
+    while (*p) assert(*(p++) != ':', "UNIMPLEMENTED: multiple library search paths aren't implemented yet.");  // TODO:
+    assert(library_search_path[0] == '/', "Library search paths must be absolute.");
+
+    // TODO: support proper library naming
+    size_t library_search_path_length = strlen(library_search_path);
+    char path_buffer[PATH_SIZE + 1];
+    memcpy(path_buffer, library_search_path, library_search_path_length);
+    path_buffer[library_search_path_length] = '/';
+    library_search_path_length++;
+    for (size_t i = 0; i < lib_index; i++) {
+        char *library_name = string_table + library_offsets[i];
+        size_t library_name_length = strlen(library_name);
+        memcpy(path_buffer + library_search_path_length, library_name, library_name_length);
+        path_buffer[library_search_path_length + library_name_length] = '\0';
+
+        int fd = open(path_buffer, O_RDONLY, NULL);
+        if (fd == ENOENT) {
+            print("Error loading shared library: unable to find library \"");
+            print(library_name);
+            print("\" at \"");
+            print(library_search_path);
+            print("\".\n");
+        }
+
+        // TODO: load
+        // TODO: should we open? I guess memmap'ping would be better
+        // TODO: what does mmap do on non-existent file?
+        close(fd);
+    }
+#undef LIB_SIZE
+#undef PATH_SIZE
+}
+
 void entry() {
     Args args = get_args();
     char *prog_base = get_prog_base(&args);
