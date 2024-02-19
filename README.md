@@ -1,9 +1,6 @@
 # MIDL - minimalistic dynamic linker
-<!-- TODO: is there really no difference between a linker and a loader? -->
-MIDL is a minimal loader capable of dynamically linking shared libraries. \
-It was built in order to learn more about linkers, loaders and ELF.
-
-
+MIDL is a minimal dynamic linker written for 64bit Intel Linux. \
+It was built in order to learn more about dynamic linkers, loaders and ELF.
 
 ## What is a dynamic linker?
 Dynamic linker is a program responsible for loading executable and linking it with shared libraries at runtime, such as glibc's `ld-linux`. \
