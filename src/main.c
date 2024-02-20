@@ -91,7 +91,9 @@ void link(char *prog_base, ELFHeader *elf) {
     size_t lib_index = 0;
     void *got = NULL;
     char *string_table = NULL;
-    uint64_t library_search_paths_offset = NULL;
+    uint64_t library_search_paths_offset = 0;
+    Relocation *relocations = NULL;
+    Symbol *symbol_table = NULL;
 
     Segment *dynamic_segment = get_segment(prog_base, elf, SG_DYNAMIC);
     for (Dynamic *d = (Dynamic *) (prog_base + dynamic_segment->offset); d->type != DN_NULL; d++) {
@@ -105,19 +107,43 @@ void link(char *prog_base, ELFHeader *elf) {
             string_table = prog_base + d->value;
         } else if (d->type == DN_LIBRARY_SEARCH_PATHS) {
             library_search_paths_offset = d->value;
+        } else if (d->type == DN_RELA || d->type == DN_REL || d->type == DN_RELR) {
+            assert(0, "UNIMPLEMENTED: the only supported relocation type is REL_JUMP_SLOT.");
+        } else if (d->type == DN_PLT_REL_TYPE) {
+            assert(d->value == REL_JUMP_SLOT, "UNIMPLEMENTED: the only supported relocation type is REL_JUMP_SLOT.");
+        } else if (d->type == DN_JUMP_RELOCATIONS) {
+            relocations = (Relocation *) (prog_base + d->value);
+        } else if (d->type == DN_SYMBOL_TABLE) {
+            symbol_table = (Symbol *) (prog_base + d->value);
         }
     }
     assert(got != NULL, "Can't locate GOT.");
     assert(string_table != NULL, "Can't locate string table.");
-    assert(library_search_paths_offset != NULL, "Can't locate library search paths.");
-    // TODO: use default paths (in /etc/ld.config or something)
+    assert(symbol_table != NULL, "Can't locate symbol table.");
+    assert(library_search_paths_offset != 0, "Can't locate library search paths.");
+    assert(relocations != NULL, "Can't locate REL_JUMP_SLOT.");
+
+    for (Relocation *r = relocations; r->offset; r++) {
+        assert(r->addend == 0, "Error initializingi PLT: REL_JUMP_SLOT doesn't use addend.");
+        assert(r->info.v.type == REL_JUMP_SLOT,
+               "Error initializing PLT entries: relocation type must be REL_JUMP_SLOT.");
+
+        void *plt_location = prog_base + r->offset;
+        Symbol s = symbol_table[r->info.v.symbol_index];
+        const char *symbol_name = string_table + s.name_offset;
+        assert(s.bind == SMB_GLOBAL || s.bind == SMB_WEAK,
+               "Error initializing PLT: relocated symbol must have GLOBAL or WEAK binding.");
+        assert(s.type == SMT_FUNC, "Error initializing PLT: relocated symbol must be of type FUNC.");
+        assert(s.visibility == SMV_DEFAULT, "Error initializing PLT: relocated symbol must have DEFAULT visibility.");
+
+        // TODO:
+    }
 
     char *library_search_path = string_table + library_search_paths_offset;
     char *p = library_search_path;
     while (*p) assert(*(p++) != ':', "UNIMPLEMENTED: multiple library search paths aren't implemented yet.");  // TODO:
     assert(library_search_path[0] == '/', "Library search paths must be absolute.");
 
-    // TODO: support proper library naming
     size_t library_search_path_length = strlen(library_search_path);
     char path_buffer[PATH_SIZE + 1];
     memcpy(path_buffer, library_search_path, library_search_path_length);

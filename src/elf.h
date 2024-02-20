@@ -105,13 +105,31 @@ typedef struct {
     uint64_t entry_size;
 } Section;
 
+#define REL_NONE      0
+#define REL_64        1
+#define REL_PC32      2
+#define REL_GOT32     3
+#define REL_PLT32     4
+#define REL_COPY      5
+#define REL_GLOB_DAT  6
+#define REL_JUMP_SLOT 7
+#define REL_RELATIVE  8
+
+#define RELST_NOTYPE  0
+#define RELST_OBJECT  1
+#define RELST_FUNC    2
+#define RELST_SECTION 3
+#define RELST_FILE    4
+#define RELST_COMMON  5
+#define RELST_TLS     6
+
 typedef struct {
     uint64_t offset;
     union {
 #pragma pack(push, 1)
         struct {
-            int32_t symbol_index;
             int32_t type;
+            int32_t symbol_index;
         } v;
 #pragma pack(pop)
         uint64_t raw;
@@ -119,10 +137,27 @@ typedef struct {
     int64_t addend;
 } Relocation;
 
+#define SMB_LOCAL     0
+#define SMB_GLOBAL    1
+#define SMB_WEAK      2
+
+#define SMT_NOTYPE    0
+#define SMT_OBJECT    1
+#define SMT_FUNC      2
+#define SMT_SECTION   3
+#define SMT_FILE      4
+#define SMT_COMMON    5
+#define SMT_TLS       6
+
+#define SMV_DEFAULT   0
+#define SMV_INTERNAL  1
+#define SMV_HIDDEN    2
+#define SMV_PROTECTED 3
+
 typedef struct {
-    int32_t name_offset;
-    uint8_t type;
-    uint8_t __unused;
+    uint32_t name_offset;
+    uint8_t type : 4, bind : 4;
+    uint8_t visibility : 3, __unused : 5;
     uint16_t section_index;
     uint64_t value;
     uint64_t size;
@@ -153,7 +188,7 @@ enum DYNAMIC_TYPES {
     DN_PLT_REL_TYPE,
     DN_DEBUG,
     DN_TEXTREL,
-    DN_JMPREL,
+    DN_JUMP_RELOCATIONS,
     DN_BIND_NOW,
     DN_INIT_ARRAY,
     DN_FINI_ARRAY,
