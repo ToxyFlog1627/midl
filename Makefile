@@ -48,7 +48,7 @@ $(LOADER): $(OBJECTS)
 
 $(LD_OBJ_DIR)/%.o: $(LD_SRC_DIR)/%.c
 	@mkdir -p $(@D)
-	$(CC) $(CFLAGS) -I src -o $@ -c $^ -fno-stack-protector
+	$(CC) $(CFLAGS) -I src -o $@ -c $^ -fno-stack-protector -Wno-builtin-declaration-mismatch
 
 $(EX_LIB_BUILD_DIR)/libmath.so: $(EX_LIB_OBJ_DIR)/math.o
 	@mkdir -p $(@D)
@@ -76,7 +76,7 @@ $(EX_BIN_BUILD_DIR)/single_lib: $(EX_BIN_OBJ_DIR)/single_lib.o $(EX_LIB_BUILD_DI
 
 $(EX_BIN_BUILD_DIR)/chained_libs: $(EX_BIN_OBJ_DIR)/chained_libs.o $(EX_LIB_BUILD_DIR)/libprint.so
 	@mkdir -p $(@D)
-	$(CC) $(EX_BIN_CFLAGS) -o $@ $< -Wl,-rpath=$(PWD)/$(EX_LIB_BUILD_DIR) -L $(EX_LIB_BUILD_DIR) -lprint
+	$(CC) $(EX_BIN_CFLAGS) -o $@ $< -Wl,-rpath=$(PWD)/$(EX_LIB_BUILD_DIR) -L $(EX_LIB_BUILD_DIR) -lprint -Wno-unused-parameter
 
 $(EX_BIN_OBJ_DIR)/%.o: $(EX_BIN_SRC_DIR)/%.c
 	@mkdir -p $(@D)

@@ -18,6 +18,20 @@
         "hwcap.h": "c",
         "math.h": "c",
         "errno.h": "c",
-        "dirent.h": "c"
+        "dirent.h": "c",
+        "mman.h": "c",
+        "mman-map-flags-generic.h": "c",
+        "types.h": "c",
+        "syscalls.h": "c",
+        "*.rh": "c",
+        "exception": "c",
+        "memory_resource": "c",
+        "fstream": "c",
+        "iosfwd": "c",
+        "new": "c",
+        "ostream": "c",
+        "sstream": "c",
+        "stop_token": "c",
+        "streambuf": "c"
     }
 }
