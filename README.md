@@ -1,15 +1,20 @@
-# MIDL - minimalistic dynamic linker
-MIDL is a minimal dynamic linker written for 64bit Intel Linux. \
-It was built in order to learn more about dynamic linkers, loaders and ELF.
+# MIDL - MInimal Dynamic Linker
+MIDL is a small dynamic linker written for 64bit Intel Linux in order to learn more about shared libraries and ELF.
 
 ## What is a dynamic linker?
 Dynamic linker is a program responsible for loading executable and linking it with shared libraries at runtime, such as glibc's `ld-linux`. \
 A dynamically-linked ELF contains `PT_INTERP` field in the header which specifies a path to the interpreter. \
 When file is executed, kernel loads an ELF into the memory, loads an appropriate interpreter(e.g. dynamic linker) and calls its entry point. \
-Interpreter is then responsible for doing everything needed to run this binary, this includes but not limited to loading libraries and linking them.
+Interpreter will then prepare the environment before passing the execution to the ELF itself. Preparations includes but not limited to loading libraries and linking them.
+
+## Interpreter: shared object vs executable
+
+If interpreter is an executable, it will be loaded at a fixed address, therefore it is possible that it will overlap with with another ELF.
+
+If it is a shared object (i.e. shared library) it is position independent, thus can be loaded anywhere. Although it is easier to deal with, it has its own downsides, namely having to start the execution with linking itself.
 
 ## Building a dynamic linker
-Options required to build linker:
+Flags required to build linker:
 1. `-pie` to make it position independent, because dynamic linker can get loaded anywhere in the memory.
 2. `-Wl,--no-dynamic-linker` to make it statically-linked \
 Alternatively, `-pie -Wl,--no-dynamic-linker` can be replaced with `-static-pie`.
@@ -34,20 +39,28 @@ Flags prefixed with `-f` use specified mode *if possible*, whereas `-pie` always
 
 `-static-pie` is basically an alias for `-static -pie --no-dynamic-linker -z text`.
 
+### Linker, Loader, Dynamic Linker and Interpreter
+
+*Interpreter* is a shared object (or an executable) which is ran before the ELF to prepare the environment. 
+
+*Linker* is an executable which **links** object files together, e.g. `gcc a.o b.o c.o -o a.out`(acts as `ld`).
+
+*Dynamic linker* is a shared object or an executable which links the main ELF executable with shared libraries at runtime(i.e. **dynamically**).
+
+*Loader* is a shared object or an executable which **loads** dynamic loader.
+
+
 ## Usage
-**Tested only with GCC on x86_64** 
 
-Compilation and linking flags for binaries that use this linker.
+Compilation and linking flags for executables that use this linker.
 1. Disable standard library with `--nostdlib` to disable standard linker (i.e. `ld-loader`).
-2. Set path to our dynamic linker with `-Wl,--dynamic-linker,PATH_TO_LINKER`
-
-## Examples
-
-<!-- TODO: write about compiling/using examples -->
+2. Set path to dynamic linker with `-Wl,--dynamic-linker,PATH_TO_LINKER`
+3. Set runtime library search path with `-Wl,-rpath,PATH_TO_DIRECTORY_WITH_LIBRARIES`
 
 # References
 [32-bit ELF reference specification](https://refspecs.linuxfoundation.org/elf/elf.pdf) \
 [64-bit ELF specification](https://uclibc.org/docs/elf-64-gen.pdf) \
 [Handy system calls table](https://chromium.googlesource.com/chromiumos/docs/+/master/constants/syscalls.md) \
 [GCC inline assembly guide](https://www.ibiblio.org/gferg/ldp/GCC-Inline-Assembly-HOWTO.html#s3) \
-[Source of Linux kernel function which loads ELF](https://github.com/torvalds/linux/blob/master/fs/binfmt_elf.c#L819C12-L819C27)
+[Source of Linux kernel function which loads ELF](https://github.com/torvalds/linux/blob/master/fs/binfmt_elf.c#L819C12-L819C27) \
+[Other dynamic loader](https://github.com/Ferdi265/dynamic-loader)
