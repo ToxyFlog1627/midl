@@ -84,10 +84,18 @@ void memcpy(void *dest, void *src, size_t n) {
     while (n--) *(to++) = *(from++);
 }
 
+#define ALIGN(value, alignment) (value & ~(alignment - 1))
+
+typedef struct {
+    void *plt_location;
+    const char *symbol_name;
+} _Relocation;
+
 void link(char *prog_base, ELFHeader *elf) {
 #define PATH_SIZE 1024
 #define LIB_SIZE  256
-    uint64_t library_offsets[LIB_SIZE] = {0};  // TODO: dynamic array
+#define REL_SIZE  1024
+    uint64_t library_offsets[LIB_SIZE];  // TODO: dynamic array
     size_t lib_index = 0;
     void *got = NULL;
     char *string_table = NULL;
@@ -123,20 +131,22 @@ void link(char *prog_base, ELFHeader *elf) {
     assert(library_search_paths_offset != 0, "Can't locate library search paths.");
     assert(relocations != NULL, "Can't locate REL_JUMP_SLOT.");
 
+    size_t ri = 0;
+    _Relocation _relocations[REL_SIZE];  // TODO: dynamic array
     for (Relocation *r = relocations; r->offset; r++) {
         assert(r->addend == 0, "Error initializingi PLT: REL_JUMP_SLOT doesn't use addend.");
         assert(r->info.v.type == REL_JUMP_SLOT,
                "Error initializing PLT entries: relocation type must be REL_JUMP_SLOT.");
 
-        void *plt_location = prog_base + r->offset;
         Symbol s = symbol_table[r->info.v.symbol_index];
-        const char *symbol_name = string_table + s.name_offset;
         assert(s.bind == SMB_GLOBAL || s.bind == SMB_WEAK,
                "Error initializing PLT: relocated symbol must have GLOBAL or WEAK binding.");
         assert(s.type == SMT_FUNC, "Error initializing PLT: relocated symbol must be of type FUNC.");
         assert(s.visibility == SMV_DEFAULT, "Error initializing PLT: relocated symbol must have DEFAULT visibility.");
 
-        // TODO:
+        _relocations[ri].plt_location = prog_base + r->offset;
+        _relocations[ri].symbol_name = string_table + s.name_offset;
+        ri++;
     }
 
     char *library_search_path = string_table + library_search_paths_offset;
@@ -164,8 +174,57 @@ void link(char *prog_base, ELFHeader *elf) {
             print("\".\n");
         }
 
+        ELFHeader lib_elf;
+        read(fd, &lib_elf, sizeof(lib_elf));
+        assert_supported_elf(&lib_elf);
+
+        size_t lib_segments_size = 0;
+        lseek(fd, lib_elf.segments_offset, SEEK_SET);
+        for (size_t i = 0; i < lib_elf.segment_entry_count; i++) {
+            Segment s;
+            read(fd, &s, sizeof(s));
+
+            if (s.type == SG_LOAD) {
+                size_t new_size = s.address + s.memory_size;
+                if (new_size > lib_segments_size) lib_segments_size = new_size;
+            }
+        }
+
+        // memory of this mmap is not used, because the purpose of this call is to locate
+        // contiguous chunk of address space which later gets overriden with library data
+        char *lib_base = mmap(NULL, lib_segments_size, MAP_PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, NULL, NULL);
+        assert(((int64_t) lib_base) > 0, "HANDLE SYS CALL ERROR");
+
+        uint64_t previous_mapping_end = 0;
+        lseek(fd, lib_elf.segments_offset, SEEK_SET);
+        for (size_t i = 0; i < lib_elf.segment_entry_count; i++) {
+            Segment s;
+            read(fd, &s, sizeof(s));
+
+            if (s.type == SG_LOAD) {
+                assert(s.memory_size == s.file_size, "Segments with mem_size != file_size are unimplemented.");
+
+                if (s.address % s.alignment != 0) {
+                    assert(s.offset % s.alignment == s.address % s.alignment,
+                           "Address and offset must be equally misaligned.");
+
+                    uint64_t aligned_offset = ALIGN(s.offset, s.alignment);
+                    uint64_t aligned_address = ALIGN(s.address, s.alignment);
+
+                    s.file_size += s.offset - aligned_offset + s.file_size;
+                    s.offset = aligned_offset;
+                    s.address = aligned_address;
+                }
+
+                assert(s.address >= previous_mapping_end, "Mmaped segments overlap.");
+                void *result = mmap(lib_base + s.address, s.file_size, s.flags, MAP_PRIVATE | MAP_FIXED, fd, s.offset);
+                assert(((int64_t) result) > 0, "HANDLE SYS CALL ERROR");
+                previous_mapping_end = s.address + s.file_size;
+            }
+        }
         close(fd);
     }
+#undef REL_SIZE
 #undef LIB_SIZE
 #undef PATH_SIZE
 }
