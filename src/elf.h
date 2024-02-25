@@ -211,4 +211,15 @@ typedef struct {
     uint64_t value;
 } Dynamic;
 
+// https://refspecs.linuxfoundation.org/elf/elf.pdf
+inline uint64_t elf_hash(const char *value) {
+    uint64_t h = 0, g;
+    while (*value) {
+        h = (h << 4) + *value++;
+        if ((g = h & 0xF0000000)) h ^= g >> 24;
+        h &= ~g;
+    }
+    return h;
+}
+
 #endif  // ELF_H

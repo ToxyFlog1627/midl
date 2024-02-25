@@ -13,8 +13,8 @@ static word syscall6(word call_num, word a0, word a1, word a2, word a3, word a4,
     word retval;
     __asm__ volatile(
         "mov %[a3], %%r10\n\t"
-        "mov %[a4], %%r9\n\t"
-        "mov %[a5], %%r8\n\t"
+        "mov %[a4], %%r8\n\t"
+        "mov %[a5], %%r9\n\t"
         "syscall\n\t"
         : "=a"(retval)
         : "a"(call_num), "D"(a0), "S"(a1), "d"(a2), [a3] "r"(a3), [a4] "r"(a4), [a5] "r"(a5)
@@ -32,7 +32,7 @@ static word syscall6(word call_num, word a0, word a1, word a2, word a3, word a4,
 #define exit(exit_code)                             syscall3(0x3c, exit_code, NULL, NULL)
 #define getdents(fd, dirent, count)                 syscall3(0xd9, fd, direct, count)
 
-// errors
+// error codes
 #define ENOENT -0x02
 
 // open
@@ -46,11 +46,13 @@ static word syscall6(word call_num, word a0, word a1, word a2, word a3, word a4,
 #define SEEK_END 2
 
 // mmap
-#define MAP_PRIVATE   0x02
-#define MAP_SHARED    0x03
-#define MAP_FIXED     0x10
-#define MAP_FILE      0
-#define MAP_ANONYMOUS 0x20
+#define MAP_PROT_NONE  0x00
+#define MAP_PROT_READ  0x01
+#define MAP_PROT_WRITE 0x02
+#define MAP_PROT_EXEC  0x04
+#define MAP_PRIVATE    0x02
+#define MAP_FIXED      0x10
+#define MAP_ANONYMOUS  0x20
 
 // getdents
 enum DIRENT_TYPES {

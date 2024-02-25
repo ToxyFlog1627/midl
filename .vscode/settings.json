@@ -32,6 +32,11 @@
         "ostream": "c",
         "sstream": "c",
         "stop_token": "c",
-        "streambuf": "c"
+        "streambuf": "c",
+        "chrono": "c",
+        "typeinfo": "c",
+        "mman-linux.h": "c",
+        "errno-base.h": "c",
+        "functional": "c"
     }
 }

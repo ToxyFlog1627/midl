@@ -141,7 +141,7 @@ void link(char *prog_base, ELFHeader *elf) {
 
     char *library_search_path = string_table + library_search_paths_offset;
     char *p = library_search_path;
-    while (*p) assert(*(p++) != ':', "UNIMPLEMENTED: multiple library search paths aren't implemented yet.");  // TODO:
+    while (*p) assert(*(p++) != ':', "UNIMPLEMENTED: multiple library search paths aren't implemented yet.");
     assert(library_search_path[0] == '/', "Library search paths must be absolute.");
 
     size_t library_search_path_length = strlen(library_search_path);
@@ -155,7 +155,7 @@ void link(char *prog_base, ELFHeader *elf) {
         memcpy(path_buffer + library_search_path_length, library_name, library_name_length);
         path_buffer[library_search_path_length + library_name_length] = '\0';
 
-        int fd = open(path_buffer, O_RDONLY, NULL);
+        int fd = open(path_buffer, O_RDWR, NULL);
         if (fd == ENOENT) {
             print("Error loading shared library: unable to find library \"");
             print(library_name);
