@@ -3,13 +3,13 @@
 
 #include "types.h"
 
-static word syscall3(word call_num, word a0, word a1, word a2) {
+__attribute__((unused)) static word syscall3(word call_num, word a0, word a1, word a2) {
     word retval;
     __asm__ volatile("syscall\n\t" : "=a"(retval) : "a"(call_num), "D"(a0), "S"(a1), "d"(a2));
     return retval;
 }
 
-static word syscall6(word call_num, word a0, word a1, word a2, word a3, word a4, word a5) {
+__attribute__((unused)) static word syscall6(word call_num, word a0, word a1, word a2, word a3, word a4, word a5) {
     word retval;
     __asm__ volatile(
         "mov %[a3], %%r10\n\t"

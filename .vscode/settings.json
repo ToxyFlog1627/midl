@@ -51,6 +51,7 @@
         "array": "c",
         "tuple": "c",
         "type_traits": "c",
-        "utility": "c"
+        "utility": "c",
+        "print.h": "c"
     }
 }

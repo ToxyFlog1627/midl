@@ -5,10 +5,8 @@
 
 #define NULL 0
 
-// auxillary variable types
 #define AT_NULL 0
 #define AT_PHDR 3
-#define AT_BASE 7
 
 typedef struct {
     int argc;
@@ -65,7 +63,7 @@ char *get_prog_base(Args *args) {
     }
 
     Segment *phdr = (Segment *) (*(var + 1));
-    return (char *) (((word) phdr) - phdr->offset);
+    return (char *) (((word) phdr) - phdr->file_offset);
 }
 
 Segment *get_segment(char *prog_base, ELFHeader *elf, uint32_t type) {
@@ -112,7 +110,7 @@ void link(char *prog_base, ELFHeader *elf) {
     Symbol *symbol_table = NULL;
 
     Segment *dynamic_segment = get_segment(prog_base, elf, SG_DYNAMIC);
-    for (Dynamic *d = (Dynamic *) (prog_base + dynamic_segment->offset); d->type != DN_NULL; d++) {
+    for (Dynamic *d = (Dynamic *) (prog_base + dynamic_segment->memory_offset); d->type != DN_NULL; d++) {
         // TODO: switch?
         if (d->type == DN_PLT_GOT) {
             got = (uint64_t *) (prog_base + d->value);
@@ -194,10 +192,10 @@ void link(char *prog_base, ELFHeader *elf) {
             read(fd, &s, sizeof(s));
 
             if (s.type == SG_LOAD) {
-                size_t new_size = s.address + s.memory_size;
+                size_t new_size = s.memory_offset + s.memory_size;
                 if (new_size > lib_segments_size) lib_segments_size = new_size;
             } else if (s.type == SG_DYNAMIC) {
-                dynamic_offset = s.address;
+                dynamic_offset = s.memory_offset;
             }
         }
         assert(dynamic_offset != 0 && dynamic_offset < lib_segments_size, "Invalid offset of DYNAMIC segment.");
@@ -216,22 +214,23 @@ void link(char *prog_base, ELFHeader *elf) {
             if (s.type == SG_LOAD) {
                 assert(s.memory_size == s.file_size, "Segments with mem_size != file_size are unimplemented.");
 
-                if (s.address % s.alignment != 0) {
-                    assert(s.offset % s.alignment == s.address % s.alignment,
-                           "Address and offset must be equally misaligned.");
+                if (s.memory_offset % s.alignment != 0) {
+                    assert(s.file_offset % s.alignment == s.memory_offset % s.alignment,
+                           "Memory and file offsets must be equally misaligned.");
 
-                    uint64_t aligned_offset = ALIGN(s.offset, s.alignment);
-                    uint64_t aligned_address = ALIGN(s.address, s.alignment);
+                    uint64_t aligned_file_offset = ALIGN(s.file_offset, s.alignment);
+                    uint64_t aligned_memory_offset = ALIGN(s.memory_offset, s.alignment);
 
-                    s.file_size += s.offset - aligned_offset + s.file_size;
-                    s.offset = aligned_offset;
-                    s.address = aligned_address;
+                    s.file_size += s.file_offset - aligned_file_offset + s.file_size;
+                    s.file_offset = aligned_file_offset;
+                    s.memory_offset = aligned_memory_offset;
                 }
 
-                assert(s.address >= previous_mapping_end, "Mmaped segments overlap.");
-                void *result = mmap(lib_base + s.address, s.file_size, s.flags, MAP_PRIVATE | MAP_FIXED, fd, s.offset);
+                assert(s.memory_offset >= previous_mapping_end, "Mmaped segments overlap.");
+                void *result = mmap(lib_base + s.memory_offset, s.file_size, s.flags, MAP_PRIVATE | MAP_FIXED, fd,
+                                    s.file_offset);
                 assert(((int64_t) result) > 0, "HANDLE SYS CALL ERROR");
-                previous_mapping_end = s.address + s.file_size;
+                previous_mapping_end = s.memory_offset + s.file_size;
             }
         }
 
@@ -305,6 +304,7 @@ void link(char *prog_base, ELFHeader *elf) {
 void entry() {
     Args args = get_args();
     char *prog_base = get_prog_base(&args);
+
     ELFHeader *elf = (ELFHeader *) prog_base;
     assert_supported_elf(elf);
 

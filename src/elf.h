@@ -3,6 +3,8 @@
 
 #include "types.h"
 
+// Header
+
 #define ELF_MAGIC        0x464C457F
 #define ELF_64           2
 #define ELF_LSB          1
@@ -29,7 +31,7 @@ typedef struct {
     uint16_t type;
     uint16_t arch;
     uint32_t version;
-    uint64_t entry;  // TODO: void* or main*
+    uint64_t entry;
     uint64_t segments_offset;
     uint64_t sections_offset;
     uint32_t flags;
@@ -40,6 +42,8 @@ typedef struct {
     uint16_t section_entry_count;
     uint16_t string_table_section_index;
 } ELFHeader;
+
+// Segment (Program Header)
 
 enum SEGMENT_TYPES {
     SG_NULL,
@@ -60,14 +64,15 @@ enum SEGMENT_TYPES {
 typedef struct {
     uint32_t type;
     uint32_t flags;
-    // TODO: what is the diff between adr and off
-    uint64_t offset;
-    uint64_t address;
+    uint64_t file_offset;
+    uint64_t memory_offset;
     uint64_t __physical_address;  // unused
     uint64_t file_size;
     uint64_t memory_size;
     uint64_t alignment;
 } Segment;
+
+// Section
 
 #define SC_WRITE 0x1
 #define SC_ALLOC 0x2
@@ -95,7 +100,6 @@ typedef struct {
     uint32_t name_offset;
     uint32_t type;
     uint64_t flags;
-    // TODO: what is the diff between adr and off
     uint64_t address;
     uint64_t offset;
     uint64_t size;
@@ -104,6 +108,8 @@ typedef struct {
     uint64_t alignment;
     uint64_t entry_size;
 } Section;
+
+// Relocation
 
 #define REL_NONE      0
 #define REL_64        1
@@ -137,6 +143,8 @@ typedef struct {
     int64_t addend;
 } Relocation;
 
+// Symbol
+
 #define SMB_LOCAL     0
 #define SMB_GLOBAL    1
 #define SMB_WEAK      2
@@ -163,7 +171,8 @@ typedef struct {
     uint64_t size;
 } Symbol;
 
-// TODO: rename types
+// Dynamic
+
 enum DYNAMIC_TYPES {
     DN_NULL,
     DN_NEEDED,
