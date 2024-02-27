@@ -203,7 +203,8 @@ enum DYNAMIC_TYPES {
     DN_RELRSZ,
     DN_RELR,
     DN_RELRENT,
-    _DN_SIZE
+    _DN_SIZE,
+    DN_GNU_HASH = 0x6FFFFEF5
 };
 
 typedef struct {
@@ -211,15 +212,32 @@ typedef struct {
     uint64_t value;
 } Dynamic;
 
-// https://refspecs.linuxfoundation.org/elf/elf.pdf
-inline uint64_t elf_hash(const char *value) {
-    uint64_t h = 0, g;
-    while (*value) {
-        h = (h << 4) + *value++;
-        if ((g = h & 0xF0000000)) h ^= g >> 24;
-        h &= ~g;
-    }
+// https://sourceware.org/legacy-ml/binutils/2006-10/msg00377.html
+// GNU Hash Table:
+
+// Dynamic symbols section is split into two parts:
+// 1. one that can't be looked up using GNU hash table (up to first_symbol_index)
+// 2. one that can and is sorted by their hash table index (to improve CPU caching and prefetching)
+typedef struct {
+    uint32_t buckets_num;
+    uint32_t first_symbol_index;
+    uint32_t bloom_size;
+    uint32_t bloom_shift;
+    uint64_t *bloom_filter;
+    uint32_t *buckets;
+    uint32_t *chains;
+} HashTable;
+
+uint32_t elf_gnu_hash(const char *s) {
+    uint32_t h = 5381;
+    for (unsigned char c = *s; c != '\0'; c = *++s) h = h * 33 + c;
     return h;
+}
+
+bool elf_gnu_bloom_test(const HashTable *h, uint32_t hash) {
+    uint64_t word = h->bloom_filter[(hash / 64) % h->bloom_size];
+    uint64_t mask = (((uint64_t) 1) << (hash % 64)) | (((uint64_t) 1) << ((hash >> h->bloom_shift) % 64));
+    return (word & mask) == mask;
 }
 
 #endif  // ELF_H
