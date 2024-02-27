@@ -2,8 +2,7 @@
 #include "print.h"
 #include "syscalls.h"
 #include "types.h"
-
-#define NULL 0
+#include "ulibc.h"
 
 #define AT_NULL 0
 #define AT_PHDR 3
@@ -31,14 +30,6 @@ Args get_args() {
     while (*(args.auxv++)) continue;
 
     return args;
-}
-
-void assert(bool condition, const char *error_msg) {
-    if (!condition) {
-        print(error_msg);
-        if (error_msg[strlen(error_msg) - 1] != '\n') print("\n");
-        exit(1);
-    }
 }
 
 void assert_supported_elf(ELFHeader *header) {
@@ -74,13 +65,8 @@ Segment *get_segment(char *prog_base, ELFHeader *elf, uint32_t type) {
     print("get_segment failed to locate segment of type = ");
     print_hex(type);
     exit(1);
-    return NULL;
 }
 
-void memcpy(void *dest, void *src, size_t n) {
-    char *to = (char *) dest, *from = (char *) src;
-    while (n--) *(to++) = *(from++);
-}
 
 bool strings_are_equal(const char *s1, const char *s2) {
     while (*s1 && *s2 && *s1 == *s2) {

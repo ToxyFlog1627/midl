@@ -30,7 +30,7 @@ __attribute__((unused)) static word syscall6(word call_num, word a0, word a1, wo
 #define mmap(addr, length, prot, flags, fd, offset)                                                                    \
     ((void *) syscall6(0x09, ((word) (addr)), length, prot, flags, fd, offset))
 #define munmap(addr, len)           syscall3(0x0b, addr, len, NULL)
-#define exit(exit_code)             syscall3(0x3c, exit_code, NULL, NULL)
+#define _exit(exit_code)            syscall3(0x3c, exit_code, NULL, NULL)
 #define getdents(fd, dirent, count) syscall3(0xd9, fd, direct, count)
 
 // error codes
