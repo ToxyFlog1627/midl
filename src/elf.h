@@ -72,62 +72,11 @@ typedef struct {
     uint64_t alignment;
 } Segment;
 
-// Section
-
-#define SC_WRITE 0x1
-#define SC_ALLOC 0x2
-#define SC_EXEC  0x4
-
-#define SC_UNDEF 0
-
-enum SECTION_TYPES {
-    SC_NULL,
-    SC_PROGRAM_INFO,
-    SC_SYMBOL_TABLE,
-    SC_STRING_TABLE,
-    SC_RELOCATIONS,
-    SC_HASH,
-    SC_DYNAMIC,
-    SC_NOTE,
-    SC_UNINIT_SPACE,
-    SC_REL,
-    __SC_SHLIB,  // unused
-    SC_DYNSYM,
-    _SC_SIZE
-};
-
-typedef struct {
-    uint32_t name_offset;
-    uint32_t type;
-    uint64_t flags;
-    uint64_t address;
-    uint64_t offset;
-    uint64_t size;
-    uint32_t link;
-    uint32_t info;
-    uint64_t alignment;
-    uint64_t entry_size;
-} Section;
-
 // Relocation
 
-#define REL_NONE      0
-#define REL_64        1
-#define REL_PC32      2
-#define REL_GOT32     3
-#define REL_PLT32     4
-#define REL_COPY      5
-#define REL_GLOB_DAT  6
-#define REL_JUMP_SLOT 7
-#define REL_RELATIVE  8
+enum RELA_TYPES { RL_NONE, RL_64, RL_PC32, RL_GOT32, RL_PLT32, RL_COPY, RL_GLOB_DAT, RL_JUMP_SLOT, RL_RELATIVE };
 
-#define RELST_NOTYPE  0
-#define RELST_OBJECT  1
-#define RELST_FUNC    2
-#define RELST_SECTION 3
-#define RELST_FILE    4
-#define RELST_COMMON  5
-#define RELST_TLS     6
+enum RELA_SYMBOL_TYPE { RST_NOTYPE, RST_OBJECT, RST_FUNC, RST_SECTION, RST_FILE, RST_COMMON, RST_TLS };
 
 typedef struct {
     uint64_t offset;
@@ -145,26 +94,15 @@ typedef struct {
 
 // Symbol
 
-#define SMB_LOCAL     0
-#define SMB_GLOBAL    1
-#define SMB_WEAK      2
+enum SYMBOL_BINDING_TYPES { SMB_LOCAL, SMB_GLOBAL, SMB_WEAK };
 
-#define SMT_NOTYPE    0
-#define SMT_OBJECT    1
-#define SMT_FUNC      2
-#define SMT_SECTION   3
-#define SMT_FILE      4
-#define SMT_COMMON    5
-#define SMT_TLS       6
+enum SYMBOL_TYPES { SMT_NOTYPE, SMT_OBJECT, SMT_FUNC, SMT_SECTION, SMT_FILE, SMT_COMMON, SMT_TLS };
 
-#define SMV_DEFAULT   0
-#define SMV_INTERNAL  1
-#define SMV_HIDDEN    2
-#define SMV_PROTECTED 3
+enum SYMBOL_VISIBILITY_TYPES { SMV_DEFAULT, SMV_INTERNAL, SMV_HIDDEN, SMV_PROTECTED };
 
 typedef struct {
     uint32_t name_offset;
-    uint8_t type : 4, bind : 4;
+    uint8_t type : 4, binding : 4;
     uint8_t visibility : 3, __unused : 5;
     uint16_t section_index;
     uint64_t value;
@@ -188,30 +126,30 @@ enum DYNAMIC_TYPES {
     DN_SYMBOL_ENTRY_SIZE,
     DN_INIT,
     DN_FINI,
-    DN_SONAME,
-    DN_RPATH,
+    DN_SO_NAME,
+    DN_RUNTIME_PATH,
     DN_SYMBOLIC,
     DN_REL,
-    DN_RELSZ,
-    DN_RELENT,
+    DN_REL_SIZE,
+    DN_REL_ENTRY_SIZE,
     DN_PLT_REL_TYPE,
     DN_DEBUG,
-    DN_TEXTREL,
-    DN_JUMP_RELOCATIONS,
+    DN_TEXT_REL,
+    DN_JUMP_RELOCS,
     DN_BIND_NOW,
     DN_INIT_ARRAY,
     DN_FINI_ARRAY,
-    DN_INIT_ARRAYSZ,
-    DN_FINI_ARRAYSZ,
+    DN_INIT_ARRAY_SIZE,
+    DN_FINI_ARRAY_SIZE,
     DN_LIBRARY_SEARCH_PATHS,
     DN_FLAGS,
     DN_ENCODING,
     DN_PREINIT_ARRAY,
-    DN_PREINIT_ARRAYSZ,
-    DN_SYMTAB_SHNDX,
-    DN_RELRSZ,
+    DN_PREINIT_ARRAY_SIZE,
+    DN_SYMTAB_SHARED_IDX,
+    DN_RELR_SIZE,
     DN_RELR,
-    DN_RELRENT,
+    DN_RELR_ENTRY_SIZE,
     _DN_SIZE,
     DN_GNU_HASH = 0x6FFFFEF5
 };

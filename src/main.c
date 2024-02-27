@@ -16,7 +16,19 @@ typedef struct {
 
 typedef int main_t(int argc, char **argv, char **envp);
 
-Args get_args() {
+#define ALIGN(value, alignment) (value & ~(alignment - 1))
+
+#define FUN_PTR_CAST(fun_ptr)   *((void **) &(fun_ptr))
+
+static bool strings_are_equal(const char *s1, const char *s2) {
+    while (*s1 && *s2 && *s1 == *s2) {
+        s1++;
+        s2++;
+    }
+    return *s1 == '\0' && *s2 == '\0';
+}
+
+static Args get_args() {
     word ptr;
     __asm__ volatile("mov (%%rbp), %[ret]\n\t" : [ret] "=r"(ptr));
     ptr += sizeof(word);  // skip old call frame
@@ -32,7 +44,18 @@ Args get_args() {
     return args;
 }
 
-void assert_supported_elf(ELFHeader *header) {
+static char *get_prog_base(Args *args) {
+    word *var = args->auxv;
+    while (*var != AT_PHDR) {
+        var += 2;
+        assert(var != AT_NULL, "Error in get_prog_base: couldn't find variable of type AT_PHDR.");
+    }
+
+    Segment *phdr = (Segment *) (*(var + 1));
+    return (char *) (((word) phdr) - phdr->file_offset);
+}
+
+static void check_elf_header(ELFHeader *header) {
     assert(header->identifier.v.magic == ELF_MAGIC, "Error parsing ELF header: invalid magic.");
     assert(header->identifier.v.class == ELF_64, "Error parsing ELF header: ELF is not 64-bit.");
     assert(header->identifier.v.encoding == ELF_LSB, "Error parsing ELF header: ELF is not LSB.");
@@ -43,59 +66,28 @@ void assert_supported_elf(ELFHeader *header) {
     assert(header->arch == ELF_AMD64, "Error parsing ELF header: CPU must be AMD64(x86_64).");
     assert(header->version == ELF_VERSION, "Error parsing ELF header: ELF version mismatch.");
     assert(header->segment_entry_size == sizeof(Segment), "Error parsing ELF header: segment size mismatch!");
-    assert(header->section_entry_size == sizeof(Section), "Error parsing ELF header: section size mismatch!");
 }
 
-char *get_prog_base(Args *args) {
-    word *var = args->auxv;
-    while (*var != AT_PHDR) {
-        var += 2;
-        assert(var != NULL, "Error parsing auxillary variables: expected AT_PHDR.");
-    }
-
-    Segment *phdr = (Segment *) (*(var + 1));
-    return (char *) (((word) phdr) - phdr->file_offset);
-}
-
-Segment *get_segment(char *prog_base, ELFHeader *elf, uint32_t type) {
-    assert(type < _SG_SIZE, "Error in get_segment: expected type to be a SG_TYPE.");
-    for (Segment *s = (Segment *) (prog_base + elf->segments_offset); s->type != SG_NULL; s++) {
-        if (s->type == type) return s;
-    }
-    print("get_segment failed to locate segment of type = ");
-    print_hex(type);
-    exit(1);
-}
-
-
-bool strings_are_equal(const char *s1, const char *s2) {
-    while (*s1 && *s2 && *s1 == *s2) {
-        s1++;
-        s2++;
-    }
-    return *s1 == '\0' && *s2 == '\0';
-}
-
-#define ALIGN(value, alignment) (value & ~(alignment - 1))
-
-typedef struct {
-    uint64_t *plt_location;
-    const char *symbol_name;
-} _Relocation;
-
-void link(char *prog_base, ELFHeader *elf) {
+static void link(char *prog_base, ELFHeader *prog_elf) {
 #define PATH_SIZE 1024
 #define LIB_SIZE  256
-#define REL_SIZE  1024
+
+    Segment *dynamic_segment = NULL;
+    for (Segment *s = (Segment *) (prog_base + prog_elf->segments_offset); s->type != SG_NULL; s++) {
+        if (s->type == SG_DYNAMIC) {
+            dynamic_segment = s;
+            break;
+        }
+    }
+    assert(dynamic_segment != NULL, "Error parsing ELF header: no dynamic segment");
+
     uint64_t library_offsets[LIB_SIZE];  // TODO: dynamic array
     size_t lib_index = 0;
     uint64_t *got = NULL;
     char *string_table = NULL;
-    uint64_t library_search_paths_offset = 0;
+    uint64_t library_search_paths_offset = NULL;
     Relocation *relocations = NULL;
     Symbol *symbol_table = NULL;
-
-    Segment *dynamic_segment = get_segment(prog_base, elf, SG_DYNAMIC);
     for (Dynamic *d = (Dynamic *) (prog_base + dynamic_segment->memory_offset); d->type != DN_NULL; d++) {
         // TODO: switch?
         if (d->type == DN_PLT_GOT) {
@@ -108,10 +100,10 @@ void link(char *prog_base, ELFHeader *elf) {
         } else if (d->type == DN_LIBRARY_SEARCH_PATHS) {
             library_search_paths_offset = d->value;
         } else if (d->type == DN_RELA || d->type == DN_REL || d->type == DN_RELR) {
-            assert(0, "UNIMPLEMENTED: the only supported relocation type is REL_JUMP_SLOT.");
+            assert(false, "UNIMPLEMENTED: the only supported relocation type is REL_JUMP_SLOT.");
         } else if (d->type == DN_PLT_REL_TYPE) {
-            assert(d->value == REL_JUMP_SLOT, "UNIMPLEMENTED: the only supported relocation type is REL_JUMP_SLOT.");
-        } else if (d->type == DN_JUMP_RELOCATIONS) {
+            assert(d->value == RL_JUMP_SLOT, "UNIMPLEMENTED: the only supported relocation type is REL_JUMP_SLOT.");
+        } else if (d->type == DN_JUMP_RELOCS) {
             relocations = (Relocation *) (prog_base + d->value);
         } else if (d->type == DN_SYMBOL_TABLE) {
             symbol_table = (Symbol *) (prog_base + d->value);
@@ -119,27 +111,9 @@ void link(char *prog_base, ELFHeader *elf) {
     }
     assert(got != NULL, "Can't locate GOT.");
     assert(string_table != NULL, "Can't locate string table.");
-    assert(symbol_table != NULL, "Can't locate symbol table.");
-    assert(library_search_paths_offset != 0, "Can't locate library search paths.");
+    assert(library_search_paths_offset != NULL, "Can't locate library search paths.");
     assert(relocations != NULL, "Can't locate REL_JUMP_SLOT.");
-
-    size_t ri = 0;
-    _Relocation _relocations[REL_SIZE];  // TODO: dynamic array
-    for (Relocation *r = relocations; r->offset; r++) {
-        assert(r->addend == 0, "Error initializingi PLT: REL_JUMP_SLOT doesn't use addend.");
-        assert(r->info.v.type == REL_JUMP_SLOT,
-               "Error initializing PLT entries: relocation type must be REL_JUMP_SLOT.");
-
-        Symbol s = symbol_table[r->info.v.symbol_index];
-        assert(s.bind == SMB_GLOBAL || s.bind == SMB_WEAK,
-               "Error initializing PLT: relocated symbol must have GLOBAL or WEAK binding.");
-        assert(s.type == SMT_FUNC, "Error initializing PLT: relocated symbol must be of type FUNC.");
-        assert(s.visibility == SMV_DEFAULT, "Error initializing PLT: relocated symbol must have DEFAULT visibility.");
-
-        _relocations[ri].plt_location = (uint64_t *) (prog_base + r->offset);
-        _relocations[ri].symbol_name = string_table + s.name_offset;
-        ri++;
-    }
+    assert(symbol_table != NULL, "Can't locate symbol table.");
 
     char *library_search_path = string_table + library_search_paths_offset;
     char *p = library_search_path;
@@ -168,7 +142,7 @@ void link(char *prog_base, ELFHeader *elf) {
 
         ELFHeader lib_elf;
         read(fd, &lib_elf, sizeof(lib_elf));
-        assert_supported_elf(&lib_elf);
+        check_elf_header(&lib_elf);
 
         uint64_t dynamic_offset = 0;
         size_t lib_segments_size = 0;
@@ -219,14 +193,15 @@ void link(char *prog_base, ELFHeader *elf) {
                 previous_mapping_end = s.memory_offset + s.file_size;
             }
         }
+        close(fd);
 
         Symbol *lib_symbol_table = NULL;
         char *lib_string_table = NULL;
-        HashTable hash_table;  // TODO: zero initializing it or not all elements SEGFAULTs
+        HashTable hash_table;  // NOTE: zero-initializing causes it to SEGFAULT ¯\_(ツ)_/¯
         for (Dynamic *d = (Dynamic *) (lib_base + dynamic_offset); d->type != DN_NULL; d++) {
-            if (d->type == DN_NEEDED) assert(0, "chained_libs are unimplemented");
+            if (d->type == DN_NEEDED) assert(false, "chained_libs are unimplemented");
             else if (d->type == DN_HASH) {
-                assert(0, "Non-GNU hash tables are not supported (yet?).");
+                assert(false, "Non-GNU hash tables are not supported (yet?).");
             } else if (d->type == DN_GNU_HASH) {
                 hash_table = *((HashTable *) (lib_base + d->value));  // inits first 4 uint32_t fields
                 hash_table.bloom_filter = (uint64_t *) (lib_base + d->value + 4 * sizeof(uint32_t));
@@ -242,47 +217,51 @@ void link(char *prog_base, ELFHeader *elf) {
         assert(lib_symbol_table != NULL, "Error parsing library: couldn't find symbol table.");
         assert(lib_string_table != NULL, "Error parsing library: couldn't find string table.");
 
-        for (size_t i = 0; i < ri; i++) {
-            // TODO: find_symbol helper which access hash table
-            _Relocation r = _relocations[i];
+        for (Relocation *r = relocations; r->offset != NULL; r++) {
+            assert(r->addend == 0, "Error initializingi PLT: REL_JUMP_SLOT doesn't use addend.");
+            assert(r->info.v.type == RL_JUMP_SLOT,
+                   "Error initializing PLT entries: relocation type must be REL_JUMP_SLOT.");
+
+            Symbol s = symbol_table[r->info.v.symbol_index];
+            assert(s.binding == SMB_GLOBAL || s.binding == SMB_WEAK,
+                   "Error initializing PLT: relocated symbol must have GLOBAL or WEAK binding.");
+            assert(s.type == SMT_FUNC, "Error initializing PLT: relocated symbol must be of type FUNC.");
+            assert(s.visibility == SMV_DEFAULT,
+                   "Error initializing PLT: relocated symbol must have DEFAULT visibility.");
+
+            const char *rel_symbol_name = string_table + s.name_offset;
 
             // check with bloom filter
-            uint32_t hash = elf_gnu_hash(r.symbol_name);
+            uint32_t hash = elf_gnu_hash(rel_symbol_name);
             if (!elf_gnu_bloom_test(&hash_table, hash))
-                assert(0, "UNIMPLEMENTED: handle symbols not found in bloom filter");
+                assert(false, "UNIMPLEMENTED: handle symbols not found in bloom filter");
 
             // get symbol index
             uint32_t symbol_index = hash_table.buckets[hash % hash_table.buckets_num];
             if (symbol_index < hash_table.first_symbol_index)
-                assert(0, "UNIMPLEMENTED: handle symbols not found in hash table buckets");
+                assert(false, "UNIMPLEMENTED: handle symbols not found in hash table buckets");
 
             // look for entry with matching hash in hash chains
-            Symbol *s = NULL;
-            bool found = false;
+            Symbol *cs = NULL;
             while (1) {
                 uint32_t chain_index = symbol_index - hash_table.first_symbol_index;
                 uint32_t chain_hash = hash_table.chains[chain_index];
 
                 if ((hash | 1) == (chain_hash | 1)) {
-                    s = lib_symbol_table + symbol_index;
-                    if (strings_are_equal(r.symbol_name, lib_string_table + s->name_offset)) {
-                        found = true;
-                        break;
-                    }
+                    cs = lib_symbol_table + symbol_index;
+                    if (strings_are_equal(rel_symbol_name, lib_string_table + cs->name_offset)) break;
+                    cs = NULL;
                 }
 
                 if (chain_hash & 1) break;  // end of chain
                 symbol_index++;
             }
-            if (!found) assert(0, "UNIMPLEMENTED: handle symbols not found in hash table chains");
+            if (cs == NULL) assert(false, "UNIMPLEMENTED: handle symbols not found in hash table chains");
 
             // relocate it
-            *r.plt_location = (uint64_t) (lib_base + s->value);
+            *((uint64_t *) (prog_base + r->offset)) = (uint64_t) (lib_base + cs->value);
         }
-
-        close(fd);  // TODO: move ^ ?
     }
-#undef REL_SIZE
 #undef LIB_SIZE
 #undef PATH_SIZE
 }
@@ -291,10 +270,13 @@ void entry() {
     Args args = get_args();
     char *prog_base = get_prog_base(&args);
 
-    ELFHeader *elf = (ELFHeader *) prog_base;
-    assert_supported_elf(elf);
+    ELFHeader *prog_elf = (ELFHeader *) prog_base;
+    check_elf_header(prog_elf);
 
-    main_t *main = (main_t *) (prog_base + elf->entry);
+    link(prog_base, prog_elf);
+
+    main_t *main;
+    FUN_PTR_CAST(main) = prog_base + prog_elf->entry;
     int exit_code = main(args.argc, args.argv, args.envp);
 
     exit(exit_code);
