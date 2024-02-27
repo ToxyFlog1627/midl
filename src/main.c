@@ -84,6 +84,14 @@ void memcpy(void *dest, void *src, size_t n) {
     while (n--) *(to++) = *(from++);
 }
 
+bool strings_are_equal(const char *s1, const char *s2) {
+    while (*s1 && *s2 && *s1 == *s2) {
+        s1++;
+        s2++;
+    }
+    return *s1 == '\0' && *s2 == '\0';
+}
+
 #define ALIGN(value, alignment) (value & ~(alignment - 1))
 
 typedef struct {
@@ -178,6 +186,7 @@ void link(char *prog_base, ELFHeader *elf) {
         read(fd, &lib_elf, sizeof(lib_elf));
         assert_supported_elf(&lib_elf);
 
+        uint64_t dynamic_offset = 0;
         size_t lib_segments_size = 0;
         lseek(fd, lib_elf.segments_offset, SEEK_SET);
         for (size_t i = 0; i < lib_elf.segment_entry_count; i++) {
@@ -187,8 +196,11 @@ void link(char *prog_base, ELFHeader *elf) {
             if (s.type == SG_LOAD) {
                 size_t new_size = s.address + s.memory_size;
                 if (new_size > lib_segments_size) lib_segments_size = new_size;
+            } else if (s.type == SG_DYNAMIC) {
+                dynamic_offset = s.address;
             }
         }
+        assert(dynamic_offset != 0 && dynamic_offset < lib_segments_size, "Invalid offset of DYNAMIC segment.");
 
         // memory of this mmap is not used, because the purpose of this call is to locate
         // contiguous chunk of address space which later gets overriden with library data
@@ -222,7 +234,68 @@ void link(char *prog_base, ELFHeader *elf) {
                 previous_mapping_end = s.address + s.file_size;
             }
         }
-        close(fd);
+
+        Symbol *lib_symbol_table = NULL;
+        char *lib_string_table = NULL;
+        HashTable hash_table;  // TODO: zero initializing it or not all elements SEGFAULTs
+        for (Dynamic *d = (Dynamic *) (lib_base + dynamic_offset); d->type != DN_NULL; d++) {
+            if (d->type == DN_NEEDED) assert(0, "chained_libs are unimplemented");
+            else if (d->type == DN_HASH) {
+                assert(0, "Non-GNU hash tables are not supported (yet?).");
+            } else if (d->type == DN_GNU_HASH) {
+                hash_table = *((HashTable *) (lib_base + d->value));  // inits first 4 uint32_t fields
+                hash_table.bloom_filter = (uint64_t *) (lib_base + d->value + 4 * sizeof(uint32_t));
+                hash_table.buckets = (uint32_t *) (hash_table.bloom_filter + hash_table.bloom_size);
+                hash_table.chains = hash_table.buckets + hash_table.buckets_num;
+            } else if (d->type == DN_SYMBOL_TABLE) {
+                lib_symbol_table = (Symbol *) (lib_base + d->value);
+            } else if (d->type == DN_STRING_TABLE) {
+                lib_string_table = lib_base + d->value;
+            }
+        }
+        // TODO: check hash_table
+        assert(lib_symbol_table != NULL, "Error parsing library: couldn't find symbol table.");
+        assert(lib_string_table != NULL, "Error parsing library: couldn't find string table.");
+
+        for (size_t i = 0; i < ri; i++) {
+            // TODO: find_symbol helper which access hash table
+            _Relocation r = _relocations[i];
+
+            // check with bloom filter
+            uint32_t hash = elf_gnu_hash(r.symbol_name);
+            if (!elf_gnu_bloom_test(&hash_table, hash))
+                assert(0, "UNIMPLEMENTED: handle symbols not found in bloom filter");
+
+            // get symbol index
+            uint32_t symbol_index = hash_table.buckets[hash % hash_table.buckets_num];
+            if (symbol_index < hash_table.first_symbol_index)
+                assert(0, "UNIMPLEMENTED: handle symbols not found in hash table buckets");
+
+            // look for entry with matching hash in hash chains
+            Symbol *s = NULL;
+            bool found = false;
+            while (1) {
+                uint32_t chain_index = symbol_index - hash_table.first_symbol_index;
+                uint32_t chain_hash = hash_table.chains[chain_index];
+
+                if ((hash | 1) == (chain_hash | 1)) {
+                    s = lib_symbol_table + symbol_index;
+                    if (strings_are_equal(r.symbol_name, lib_string_table + s->name_offset)) {
+                        found = true;
+                        break;
+                    }
+                }
+
+                if (chain_hash & 1) break;  // end of chain
+                symbol_index++;
+            }
+            if (!found) assert(0, "UNIMPLEMENTED: handle symbols not found in hash table chains");
+
+            // relocate it
+            *r.plt_location = (uint64_t) (lib_base + s->value);
+        }
+
+        close(fd);  // TODO: move ^ ?
     }
 #undef REL_SIZE
 #undef LIB_SIZE
