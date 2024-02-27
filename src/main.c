@@ -87,7 +87,7 @@ void memcpy(void *dest, void *src, size_t n) {
 #define ALIGN(value, alignment) (value & ~(alignment - 1))
 
 typedef struct {
-    void *plt_location;
+    uint64_t *plt_location;
     const char *symbol_name;
 } _Relocation;
 
@@ -97,7 +97,7 @@ void link(char *prog_base, ELFHeader *elf) {
 #define REL_SIZE  1024
     uint64_t library_offsets[LIB_SIZE];  // TODO: dynamic array
     size_t lib_index = 0;
-    void *got = NULL;
+    uint64_t *got = NULL;
     char *string_table = NULL;
     uint64_t library_search_paths_offset = 0;
     Relocation *relocations = NULL;
@@ -107,7 +107,7 @@ void link(char *prog_base, ELFHeader *elf) {
     for (Dynamic *d = (Dynamic *) (prog_base + dynamic_segment->offset); d->type != DN_NULL; d++) {
         // TODO: switch?
         if (d->type == DN_PLT_GOT) {
-            got = (void *) d->value;
+            got = (uint64_t *) (prog_base + d->value);
         } else if (d->type == DN_NEEDED) {
             assert(lib_index <= LIB_SIZE, "Too many shared libraries!");
             library_offsets[lib_index++] = d->value;
@@ -144,7 +144,7 @@ void link(char *prog_base, ELFHeader *elf) {
         assert(s.type == SMT_FUNC, "Error initializing PLT: relocated symbol must be of type FUNC.");
         assert(s.visibility == SMV_DEFAULT, "Error initializing PLT: relocated symbol must have DEFAULT visibility.");
 
-        _relocations[ri].plt_location = prog_base + r->offset;
+        _relocations[ri].plt_location = (uint64_t *) (prog_base + r->offset);
         _relocations[ri].symbol_name = string_table + s.name_offset;
         ri++;
     }

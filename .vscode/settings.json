@@ -37,6 +37,20 @@
         "typeinfo": "c",
         "mman-linux.h": "c",
         "errno-base.h": "c",
-        "functional": "c"
+        "functional": "c",
+        "syscall.h": "c",
+        "cstdint": "c",
+        "string": "c",
+        "vector": "c",
+        "memory": "c",
+        "optional": "c",
+        "string_view": "c",
+        "system_error": "c",
+        "variant": "c",
+        "ratio": "c",
+        "array": "c",
+        "tuple": "c",
+        "type_traits": "c",
+        "utility": "c"
     }
 }

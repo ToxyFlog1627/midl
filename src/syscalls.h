@@ -22,15 +22,16 @@ static word syscall6(word call_num, word a0, word a1, word a2, word a3, word a4,
     return retval;
 }
 
-#define read(fd, buf, len)                          syscall3(0x00, fd, ((word) (buf)), len)
-#define write(fd, buf, len)                         syscall3(0x01, fd, ((word) (buf)), len)
-#define open(path, flags, mode)                     syscall3(0x02, ((word) (path)), flags, mode)
-#define close(fd)                                   syscall3(0x03, fd, NULL, NULL)
-#define lseek(fd, offset, whence)                   syscall3(0x08, fd, offset, whence)
-#define mmap(addr, length, prot, flags, fd, offset) syscall6(0x09, addr, length, prot, flags, fd, offset)
-#define munmap(addr, len)                           syscall3(0x0b, addr, len, NULL)
-#define exit(exit_code)                             syscall3(0x3c, exit_code, NULL, NULL)
-#define getdents(fd, dirent, count)                 syscall3(0xd9, fd, direct, count)
+#define read(fd, buf, len)        syscall3(0x00, fd, ((word) (buf)), len)
+#define write(fd, buf, len)       syscall3(0x01, fd, ((word) (buf)), len)
+#define open(path, flags, mode)   syscall3(0x02, ((word) (path)), flags, mode)
+#define close(fd)                 syscall3(0x03, fd, NULL, NULL)
+#define lseek(fd, offset, whence) syscall3(0x08, fd, offset, whence)
+#define mmap(addr, length, prot, flags, fd, offset)                                                                    \
+    ((void *) syscall6(0x09, ((word) (addr)), length, prot, flags, fd, offset))
+#define munmap(addr, len)           syscall3(0x0b, addr, len, NULL)
+#define exit(exit_code)             syscall3(0x3c, exit_code, NULL, NULL)
+#define getdents(fd, dirent, count) syscall3(0xd9, fd, direct, count)
 
 // error codes
 #define ENOENT -0x02

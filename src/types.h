@@ -2,9 +2,10 @@
 #define TYPES_H
 
 typedef long word;
+
 typedef unsigned long size_t;
 typedef unsigned long off_t;
-typedef char bool;
+
 typedef char int8_t;
 typedef unsigned char uint8_t;
 typedef short int int16_t;
@@ -13,5 +14,9 @@ typedef int int32_t;
 typedef unsigned int uint32_t;
 typedef long int int64_t;
 typedef long unsigned int uint64_t;
+
+typedef char bool;
+#define false 0
+#define true  1
 
 #endif  // TYPES_H
