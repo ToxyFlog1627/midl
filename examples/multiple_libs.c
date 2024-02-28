@@ -1,42 +1,12 @@
-// Example that uses one statically-compiled library and arguments
+// Example that uses multiple(two) statically-compiled library and arguments
 //       example
-//          |
-//       libmath
+//       |     |
+//   libmath  libprint
+//                |
+//            libsyscall
 
 #include "libs/math.h"
-
-void print(const char *msg) {
-    long retval, len = 0;
-    while (msg[len] != '\0') len++;
-    __asm__ volatile("syscall\n\t" : "=a"(retval) : "a"(1), "D"(1), "S"(msg), "d"(len));
-}
-
-void print_num(int num) {
-    char buffer[100];
-    int i = 0, mask = 1;
-
-    if (num < 0) {
-        buffer[i++] = '-';
-        num *= -1;
-    }
-
-    int num_copy = num;
-    do {
-        mask *= 10;
-        num_copy /= 10;
-    } while (num_copy > 0);
-    mask /= 10;
-
-    do {
-        buffer[i++] = '0' + (num / mask) % 10;
-        mask /= 10;
-    } while (mask > 0);
-
-    buffer[i] = '\n';
-    buffer[i + 1] = '\0';
-
-    print(buffer);
-}
+#include "libs/print.h"
 
 int parse_num(int *result, const char *string) {
     int value = 0, i = 0, mult = 1;

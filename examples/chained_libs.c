@@ -1,4 +1,9 @@
 // Example that uses chained libraries and accesses envp
+//       example
+//          |
+//       libprint
+//          |
+//      libsyscall
 
 #include "libs/print.h"
 
