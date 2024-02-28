@@ -52,6 +52,8 @@
         "tuple": "c",
         "type_traits": "c",
         "utility": "c",
-        "print.h": "c"
+        "print.h": "c",
+        "compare": "c",
+        "ulibc.h": "c"
     }
 }
