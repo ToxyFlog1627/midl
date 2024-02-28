@@ -37,9 +37,9 @@ typedef struct {
     uint32_t flags;
     uint16_t size;
     uint16_t segment_entry_size;
-    uint16_t segment_entry_count;
+    uint16_t segment_entry_num;
     uint16_t section_entry_size;
-    uint16_t section_entry_count;
+    uint16_t section_entry_num;
     uint16_t string_table_section_index;
 } ELFHeader;
 
@@ -72,7 +72,7 @@ typedef struct {
     uint64_t alignment;
 } Segment;
 
-// Relocation
+// Rela
 
 enum RELA_TYPES { RL_NONE, RL_64, RL_PC32, RL_GOT32, RL_PLT32, RL_COPY, RL_GLOB_DAT, RL_JUMP_SLOT, RL_RELATIVE };
 
@@ -90,7 +90,7 @@ typedef struct {
         uint64_t raw;
     } info;
     int64_t addend;
-} Relocation;
+} Rela;
 
 // Symbol
 
@@ -151,7 +151,8 @@ enum DYNAMIC_TYPES {
     DN_RELR,
     DN_RELR_ENTRY_SIZE,
     _DN_SIZE,
-    DN_GNU_HASH = 0x6FFFFEF5
+    DN_GNU_HASH = 0x6FFFFEF5,
+    DN_FLAGS_1 = 0x6FFFFFFB
 };
 
 typedef struct {
@@ -173,7 +174,7 @@ typedef struct {
     uint64_t *bloom_filter;
     uint32_t *buckets;
     uint32_t *chains;
-} HashTable;
+} GNUHashTable;
 
 uint32_t elf_gnu_hash(const char *s) {
     uint32_t h = 5381;
@@ -181,7 +182,7 @@ uint32_t elf_gnu_hash(const char *s) {
     return h;
 }
 
-bool elf_gnu_bloom_test(const HashTable *h, uint32_t hash) {
+bool elf_gnu_bloom_test(const GNUHashTable *h, uint32_t hash) {
     uint64_t word = h->bloom_filter[(hash / 64) % h->bloom_size];
     uint64_t mask = (((uint64_t) 1) << (hash % 64)) | (((uint64_t) 1) << ((hash >> h->bloom_shift) % 64));
     return (word & mask) == mask;

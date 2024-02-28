@@ -3,9 +3,12 @@
 #include "syscalls.h"
 #include "types.h"
 #include "ulibc.h"
+#include "vector.h"
 
-#define AT_NULL 0
-#define AT_PHDR 3
+#define MAX_PATH_LENGTH 4096
+
+#define AT_NULL         0
+#define AT_PHDR         3
 
 typedef struct {
     int argc;
@@ -68,86 +71,210 @@ static void check_elf_header(ELFHeader *header) {
     assert(header->segment_entry_size == sizeof(Segment), "Error parsing ELF header: segment size mismatch!");
 }
 
-static void link(char *prog_base, ELFHeader *prog_elf) {
-#define PATH_SIZE 1024
-#define LIB_SIZE  256
+typedef struct {
+    uint64_t *plt_got;
+    char *string_table;
+    Symbol *symbols;
+    char *lib_name;
+    v_str lib_search_paths;
+    v_str needed_libs;
+    Rela *jump_relocs;
+    GNUHashTable gnu_hash_table;
+} DynamicInfo;
 
-    Segment *dynamic_segment = NULL;
-    for (Segment *seg = (Segment *) (prog_base + prog_elf->segments_offset); seg->type != SG_NULL; seg++) {
+static void get_dynamic_info(DynamicInfo *dyn_info, char *base, const ELFHeader *elf) {
+    Segment *dyn_seg = NULL;
+    for (Segment *seg = (Segment *) (base + elf->segments_offset); seg->type != SG_NULL; seg++) {
         if (seg->type == SG_DYNAMIC) {
-            dynamic_segment = seg;
+            dyn_seg = seg;
             break;
         }
     }
-    assert(dynamic_segment != NULL, "Error parsing ELF header: no dynamic segment");
+    assert(dyn_seg != NULL, "Unable to find DYNAMIC segment.");
 
-    uint64_t lib_name_idx[LIB_SIZE];  // TODO: dynamic array
-    size_t li = 0;
-    uint64_t *plt_got = NULL;
-    char *string_table = NULL;
-    uint64_t lib_search_paths_idx = NULL;
-    Relocation *relocations = NULL;
-    Symbol *symbol_table = NULL;
-    for (Dynamic *dyn = (Dynamic *) (prog_base + dynamic_segment->memory_offset); dyn->type != DN_NULL; dyn++) {
-        // TODO: switch?
-        if (dyn->type == DN_PLT_GOT) {
-            plt_got = (uint64_t *) (prog_base + dyn->value);
-        } else if (dyn->type == DN_NEEDED) {
-            assert(li <= LIB_SIZE, "Too many shared libraries!");
-            lib_name_idx[li++] = dyn->value;
-        } else if (dyn->type == DN_STRING_TABLE) {
-            assert(string_table == NULL, "UNIMPLEMENTED");
-            string_table = prog_base + dyn->value;
-        } else if (dyn->type == DN_LIBRARY_SEARCH_PATHS) {
-            assert(lib_search_paths_idx == NULL, "UNIMPLEMENTED");
-            lib_search_paths_idx = dyn->value;
-        } else if (dyn->type == DN_RELA || dyn->type == DN_REL || dyn->type == DN_RELR) {
-            assert(false, "UNIMPLEMENTED: the only supported relocation type is REL_JUMP_SLOT.");
-        } else if (dyn->type == DN_PLT_REL_TYPE) {
-            assert(dyn->value == RL_JUMP_SLOT, "UNIMPLEMENTED: the only supported relocation type is REL_JUMP_SLOT.");
-        } else if (dyn->type == DN_JUMP_RELOCS) {
-            relocations = (Relocation *) (prog_base + dyn->value);
-        } else if (dyn->type == DN_SYMBOL_TABLE) {
-            symbol_table = (Symbol *) (prog_base + dyn->value);
+    v_size_t needed_lib_name_idxs;
+    size_t lib_name_idx = 0, lib_search_paths_idx = 0;
+    for (Dynamic *dyn = (Dynamic *) (base + dyn_seg->memory_offset); dyn->type != DN_NULL; dyn++) {
+        char *ptr = base + dyn->value;
+        switch (dyn->type) {
+            case DN_NEEDED:
+                VECTOR_PUSH(needed_lib_name_idxs, dyn->value);
+                break;
+            case DN_PLT_SIZE:
+                break;
+            case DN_PLT_GOT:
+                dyn_info->plt_got = (uint64_t *) ptr;
+                break;
+            case DN_HASH:
+                assert(false, "UNIMPLEMENTED");  // TODO:
+                break;
+            case DN_STRING_TABLE:
+                dyn_info->string_table = ptr;
+                break;
+            case DN_SYMBOL_TABLE:
+                dyn_info->symbols = (Symbol *) ptr;
+                break;
+            case DN_RELA:
+                assert(false, "DN_RELA UNIMPLEMENTED");  // TODO:
+                break;
+            case DN_RELA_SIZE:
+                break;
+            case DN_RELA_ENTRY_SIZE:
+                assert(dyn->value == sizeof(Rela), "Size mismatch between struct Rela and DN_RELA_ENTRY_SIZE.");
+                break;
+            case DN_STRING_TABLE_SIZE:
+                break;
+            case DN_SYMBOL_ENTRY_SIZE:
+                assert(dyn->value == sizeof(Symbol), "Size mismatch between struct Symbol and DN_SYMBOL_ENTRY_SIZE.");
+                break;
+            case DN_INIT:
+                assert(false, "DN_INIT UNIMPLEMENTED");  // TODO:
+                break;
+            case DN_FINI:
+                assert(false, "DN_FINI UNIMPLEMENTED");  // TODO:
+                break;
+            case DN_SO_NAME:
+                lib_name_idx = dyn->value;
+                break;
+            case DN_RUNTIME_PATH:
+                lib_search_paths_idx = dyn->value;
+                break;
+            case DN_SYMBOLIC:
+                assert(false, "DN_SYMBOLIC UNIMPLEMENTED");  // TODO:
+                break;
+            case DN_REL:
+                assert(false, "DN_REL UNIMPLEMENTED");  // TODO:
+                break;
+            case DN_REL_SIZE:
+                assert(false, "DN_REL_SIZE UNIMPLEMENTED");  // TODO:
+                break;
+            case DN_REL_ENTRY_SIZE:
+                assert(false, "DN_REL_ENTRY_SIZE UNIMPLEMENTED");  // TODO:
+                break;
+            case DN_PLT_REL_TYPE:
+                assert(dyn->value == RL_JUMP_SLOT,
+                       "UNIMPLEMENTED: the only supported relocation type is REL_JUMP_SLOT.");
+                break;
+            case DN_DEBUG:
+                break;
+            case DN_TEXT_REL:
+                assert(false, "DN_TEXT_REL UNIMPLEMENTED");  // TODO:
+                break;
+            case DN_JUMP_RELOCS:
+                dyn_info->jump_relocs = (Rela *) ptr;
+                break;
+            case DN_BIND_NOW:
+                assert(false, "DN_BIND_NOW UNIMPLEMENTED");  // TODO:
+                break;
+            case DN_INIT_ARRAY:
+                assert(false, "DN_INIT_ARRAY UNIMPLEMENTED");  // TODO:
+                break;
+            case DN_FINI_ARRAY:
+                assert(false, "DN_FINI_ARRAY UNIMPLEMENTED");  // TODO:
+                break;
+            case DN_INIT_ARRAY_SIZE:
+                assert(false, "DN_INIT_ARRAY_SIZE UNIMPLEMENTED");  // TODO:
+                break;
+            case DN_FINI_ARRAY_SIZE:
+                assert(false, "DN_FINI_ARRAY_SIZE UNIMPLEMENTED");  // TODO:
+                break;
+            case DN_LIBRARY_SEARCH_PATHS:
+                lib_search_paths_idx = dyn->value;
+                break;
+            case DN_FLAGS:
+                assert(false, "DN_FLAGS UNIMPLEMENTED");  // TODO:
+                break;
+            case DN_ENCODING:
+                assert(false, "DN_ENCODING UNIMPLEMENTED");  // TODO:
+                break;
+            case DN_PREINIT_ARRAY:
+                assert(false, "DN_PREINIT_ARRAY UNIMPLEMENTED");  // TODO:
+                break;
+            case DN_PREINIT_ARRAY_SIZE:
+                assert(false, "DN_PREINIT_ARRAY_SIZE UNIMPLEMENTED");  // TODO:
+                break;
+            case DN_SYMTAB_SHARED_IDX:
+                assert(false, "DN_SYMTAB_SHARED_IDX UNIMPLEMENTED");  // TODO:
+                break;
+            case DN_RELR_SIZE:
+                assert(false, "DN_RELR_SIZE UNIMPLEMENTED");  // TODO:
+                break;
+            case DN_RELR:
+                assert(false, "DN_RELR UNIMPLEMENTED");  // TODO:
+                break;
+            case DN_RELR_ENTRY_SIZE:
+                assert(false, "DN_RELR_ENTRY_SIZE UNIMPLEMENTED");  // TODO:
+                break;
+            case DN_GNU_HASH: {
+                GNUHashTable hash_table = *((GNUHashTable *) ptr);  // inits first 4 uint32_t fields
+                hash_table.bloom_filter = (uint64_t *) (ptr + 4 * sizeof(uint32_t));
+                hash_table.buckets = (uint32_t *) (hash_table.bloom_filter + hash_table.bloom_size);
+                hash_table.chains = hash_table.buckets + hash_table.buckets_num;
+                dyn_info->gnu_hash_table = hash_table;
+            } break;
+            case DN_FLAGS_1:
+                break;
+            default:
+                print("WARNING: Dynamic entry of unkown type.\n");  // TODO: print type
+                break;
         }
     }
-    assert(plt_got != NULL, "Can't locate GOT.");
-    assert(string_table != NULL, "Can't locate string table.");
-    assert(lib_search_paths_idx != NULL, "Can't locate library search paths.");
-    assert(relocations != NULL, "Can't locate REL_JUMP_SLOT.");
-    assert(symbol_table != NULL, "Can't locate symbol table.");
 
-    char *lib_search_paths = string_table + lib_search_paths_idx;
-    char *p = lib_search_paths;
-    while (*p) assert(*(p++) != ':', "UNIMPLEMENTED: multiple library search paths aren't implemented yet.");
-    assert(lib_search_paths[0] == '/', "Library search paths must be absolute.");
+    // TODO: assert mandatory fields
 
-    size_t lib_search_path_length = strlen(lib_search_paths);
-    char lib_path[PATH_SIZE + 1];
-    memcpy(lib_path, lib_search_paths, lib_search_path_length);
-    lib_path[lib_search_path_length] = '/';
-    lib_search_path_length++;
-    for (size_t i = 0; i < li; i++) {
-        char *library_name = string_table + lib_name_idx[i];
-        size_t library_name_length = strlen(library_name);
-        memcpy(lib_path + lib_search_path_length, library_name, library_name_length);
-        lib_path[lib_search_path_length + library_name_length] = '\0';
+    if (lib_name_idx) dyn_info->lib_name = dyn_info->string_table + lib_name_idx;
 
-        int fd = open(lib_path, O_RDWR, NULL);
-        if (fd == ENOENT) {
-            print("Error loading shared library: unable to find library \"");
-            print(library_name);
-            print("\" at \"");
-            print(lib_search_paths);
-            print("\".\n");
-            exit(1);
-        } else if (fd < 0) {
-            print("Error loading shared library.");
-            exit(1);
+    if (lib_search_paths_idx) {
+        const char *p = dyn_info->string_table + lib_search_paths_idx;
+        while (*p) {
+            const char *path_begin = p;
+            while (*p && *p != ':') p++;
+
+            size_t path_length = p - path_begin;
+            char *path = (char *) malloc(path_length + 1);
+            memcpy(path, path_begin, path_length);
+            path[path_length] = '\0';
+            VECTOR_PUSH(dyn_info->lib_search_paths, path);
+
+            if (*p == ':') p++;
         }
+    }
+
+    for (size_t i = 0; i < needed_lib_name_idxs.length; i++) {
+        size_t idx = needed_lib_name_idxs.elements[i];
+        VECTOR_PUSH(dyn_info->needed_libs, dyn_info->string_table + idx);
+    }
+}
+
+static int open_library(const v_str *library_search_paths, const char *library_name) {
+    static char library_path[MAX_PATH_LENGTH];
+
+    for (size_t i = 0; i < library_search_paths->length; i++) {
+        size_t path_length = strlen(library_search_paths->elements[i]);
+        memcpy(library_path, library_search_paths->elements[i], path_length);
+        library_path[path_length] = '/';
+        memcpy(library_path + path_length + 1, library_name, strlen(library_name));
+
+        int fd = open(library_path, O_RDWR, NULL);
+        if (fd >= 0) return fd;
+    }
+
+    print("Error loading shared library: unable to find library \"");
+    print(library_name);
+    print("\".\n");
+    exit(1);
+}
+
+static void link(char *prog_base, const ELFHeader *prog_elf) {
+    DynamicInfo prog_info;
+    get_dynamic_info(&prog_info, prog_base, prog_elf);
+
+    assert(prog_info.needed_libs.length == 1, "UNIMPLEMENTED");  // TODO:
+    for (size_t i = 0; i < prog_info.needed_libs.length; i++) {
+        int fd = open_library(&prog_info.lib_search_paths, prog_info.needed_libs.elements[i]);
 
         ELFHeader lib_elf;
-        read(fd, &lib_elf, sizeof(lib_elf));
+        read(fd, &lib_elf, sizeof(lib_elf));  // TODO: do we even have to open it to begin with?
         check_elf_header(&lib_elf);
 
         uint64_t dynamic_offset = 0;
@@ -207,75 +334,57 @@ static void link(char *prog_base, ELFHeader *prog_elf) {
         }
         close(fd);
 
-        Symbol *lib_symbol_table = NULL;
-        char *lib_string_table = NULL;
-        HashTable hash_table;  // NOTE: zero-initializing causes it to SEGFAULT ¯\_(ツ)_/¯
-        for (Dynamic *dyn = (Dynamic *) (lib_base + dynamic_offset); dyn->type != DN_NULL; dyn++) {
-            if (dyn->type == DN_NEEDED) assert(false, "chained_libs are unimplemented");
-            else if (dyn->type == DN_HASH) {
-                assert(false, "Non-GNU hash tables are not supported (yet?).");
-            } else if (dyn->type == DN_GNU_HASH) {
-                hash_table = *((HashTable *) (lib_base + dyn->value));  // inits first 4 uint32_t fields
-                hash_table.bloom_filter = (uint64_t *) (lib_base + dyn->value + 4 * sizeof(uint32_t));
-                hash_table.buckets = (uint32_t *) (hash_table.bloom_filter + hash_table.bloom_size);
-                hash_table.chains = hash_table.buckets + hash_table.buckets_num;
-            } else if (dyn->type == DN_SYMBOL_TABLE) {
-                lib_symbol_table = (Symbol *) (lib_base + dyn->value);
-            } else if (dyn->type == DN_STRING_TABLE) {
-                lib_string_table = lib_base + dyn->value;
-            }
-        }
-        // TODO: check hash_table
-        assert(lib_symbol_table != NULL, "Error parsing library: couldn't find symbol table.");
-        assert(lib_string_table != NULL, "Error parsing library: couldn't find string table.");
+        DynamicInfo lib_info;
+        get_dynamic_info(&lib_info, lib_base, &lib_elf);
 
-        for (Relocation *rel = relocations; rel->offset != NULL; rel++) {
-            assert(rel->addend == 0, "Error initializingi PLT: REL_JUMP_SLOT doesn't use addend.");
-            assert(rel->info.v.type == RL_JUMP_SLOT,
+        for (Rela *rela = prog_info.jump_relocs; rela->offset != NULL; rela++) {
+            assert(rela->addend == 0, "Error initializing PLT: REL_JUMP_SLOT doesn't use addend.");
+            assert(rela->info.v.type == RL_JUMP_SLOT,
                    "Error initializing PLT entries: relocation type must be REL_JUMP_SLOT.");
 
-            Symbol sym = symbol_table[rel->info.v.symbol_index];
+            Symbol sym = prog_info.symbols[rela->info.v.symbol_index];
             assert(sym.binding == SMB_GLOBAL || sym.binding == SMB_WEAK,
                    "Error initializing PLT: relocated symbol must have GLOBAL or WEAK binding.");
             assert(sym.type == SMT_FUNC, "Error initializing PLT: relocated symbol must be of type FUNC.");
             assert(sym.visibility == SMV_DEFAULT,
                    "Error initializing PLT: relocated symbol must have DEFAULT visibility.");
 
-            const char *rel_symbol_name = string_table + sym.name_offset;
+            const char *rel_symbol_name = prog_info.string_table + sym.name_offset;
 
             // check with bloom filter
             uint32_t hash = elf_gnu_hash(rel_symbol_name);
-            if (!elf_gnu_bloom_test(&hash_table, hash))
+            if (!elf_gnu_bloom_test(&lib_info.gnu_hash_table, hash))
                 assert(false, "UNIMPLEMENTED: handle symbols not found in bloom filter");
 
             // get symbol index
-            uint32_t sym_idx = hash_table.buckets[hash % hash_table.buckets_num];
-            if (sym_idx < hash_table.first_symbol_index)
+            uint32_t sym_idx = lib_info.gnu_hash_table.buckets[hash % lib_info.gnu_hash_table.buckets_num];
+            if (sym_idx < lib_info.gnu_hash_table.first_symbol_index)
                 assert(false, "UNIMPLEMENTED: handle symbols not found in hash table buckets");
 
             // look for entry with matching hash in hash chains
-            Symbol *cur_sym = NULL;
+            Symbol cur_sym;
+            bool found = false;
             while (1) {
-                uint32_t chain_index = sym_idx - hash_table.first_symbol_index;
-                uint32_t chain_hash = hash_table.chains[chain_index];
+                uint32_t chain_index = sym_idx - lib_info.gnu_hash_table.first_symbol_index;
+                uint32_t chain_hash = lib_info.gnu_hash_table.chains[chain_index];
 
                 if ((hash | 1) == (chain_hash | 1)) {
-                    cur_sym = lib_symbol_table + sym_idx;
-                    if (strings_are_equal(rel_symbol_name, lib_string_table + cur_sym->name_offset)) break;
-                    cur_sym = NULL;
+                    cur_sym = lib_info.symbols[sym_idx];
+                    if (strings_are_equal(rel_symbol_name, lib_info.string_table + cur_sym.name_offset)) {
+                        found = true;
+                        break;
+                    }
                 }
 
                 if (chain_hash & 1) break;  // end of chain
                 sym_idx++;
             }
-            if (cur_sym == NULL) assert(false, "UNIMPLEMENTED: handle symbols not found in hash table chains");
+            if (!found) assert(false, "UNIMPLEMENTED: handle symbols not found in hash table chains");
 
             // relocate it
-            *((uint64_t *) (prog_base + rel->offset)) = (uint64_t) (lib_base + cur_sym->value);
+            *((uint64_t *) (prog_base + rela->offset)) = (uint64_t) (lib_base + cur_sym.value);
         }
     }
-#undef LIB_SIZE
-#undef PATH_SIZE
 }
 
 void entry() {
@@ -293,3 +402,7 @@ void entry() {
 
     exit(exit_code);
 }
+
+// TODO: for .so dynamic linker, change type, add README, etc.
+// extern Elf32_Dyn _DYNAMIC[];
+// extern Elf32_Addr _GLOBAL_OFFSET_TABLE_[];
