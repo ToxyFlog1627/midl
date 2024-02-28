@@ -54,6 +54,7 @@
         "utility": "c",
         "print.h": "c",
         "compare": "c",
-        "ulibc.h": "c"
+        "ulibc.h": "c",
+        "cstring": "c"
     }
 }

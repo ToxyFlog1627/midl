@@ -10,8 +10,8 @@
         type *elements;                                                                                                \
     } name
 
-DEF_VECTOR_T(size_t, v_size_t);
-DEF_VECTOR_T(char *, v_str);
+DEF_VECTOR_T(size_t, vec_size_t);
+DEF_VECTOR_T(char *, vec_cstr);
 
 #define INITIAL_VECTOR_CAPACITY 16
 
@@ -33,7 +33,7 @@ DEF_VECTOR_T(char *, v_str);
     do {                                                                                                               \
         vector.capacity = 0;                                                                                           \
         vector.length = 0;                                                                                             \
-        free(vector.elements);                                                                                         \
+        if (vector.elements) free(vector.elements);                                                                    \
         vector.elements = NULL;                                                                                        \
     } while (0);
 

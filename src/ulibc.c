@@ -27,7 +27,6 @@ void assert(bool condition, const char *error_msg) {
     }
 }
 
-// TODO: use libc-impl or assembly instruction to speed up
 void memcpy(void *dest, const void *src, size_t n) {
     char *to = (char *) dest, *from = (char *) src;
     while (n--) *(to++) = *(from++);
@@ -40,6 +39,11 @@ int memcmp(const void *s1, const void *s2, size_t n) {
     char *p1 = (char *) s1, *p2 = (char *) s2;
     while (*(p1++) == *(p2++) && --n > 0) continue;
     return n;
+}
+
+void memset(void *s, char c, size_t n) {
+    char *p = s;
+    while (n--) *(p++) = c;
 }
 
 void *malloc(size_t n) {

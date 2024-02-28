@@ -17,6 +17,17 @@ typedef struct {
     word *auxv;
 } Args;
 
+typedef struct {
+    uint64_t *plt_got;
+    char *string_table;
+    Symbol *symbol_table;
+    char *lib_name;
+    vec_cstr lib_search_paths;
+    vec_cstr needed_libs;
+    Rela *jump_relocs;
+    GNUHashTable gnu_hash_table;
+} DynamicInfo;
+
 typedef int main_t(int argc, char **argv, char **envp);
 
 #define ALIGN(value, alignment) (value & ~(alignment - 1))
@@ -71,30 +82,23 @@ static void check_elf_header(ELFHeader *header) {
     assert(header->segment_entry_size == sizeof(Segment), "Error parsing ELF header: segment size mismatch!");
 }
 
-typedef struct {
-    uint64_t *plt_got;
-    char *string_table;
-    Symbol *symbols;
-    char *lib_name;
-    v_str lib_search_paths;
-    v_str needed_libs;
-    Rela *jump_relocs;
-    GNUHashTable gnu_hash_table;
-} DynamicInfo;
+static void get_dynamic_info(DynamicInfo *info, char *base, const ELFHeader *elf) {
+    memset(info, 0, sizeof(DynamicInfo));
 
-static void get_dynamic_info(DynamicInfo *dyn_info, char *base, const ELFHeader *elf) {
-    Segment *dyn_seg = NULL;
-    for (Segment *seg = (Segment *) (base + elf->segments_offset); seg->type != SG_NULL; seg++) {
-        if (seg->type == SG_DYNAMIC) {
-            dyn_seg = seg;
+    Segment *segment = NULL;
+    for (Segment *s = (Segment *) (base + elf->segments_offset); s->type != SG_NULL; s++) {
+        if (s->type == SG_DYNAMIC) {
+            segment = s;
             break;
         }
     }
-    assert(dyn_seg != NULL, "Unable to find DYNAMIC segment.");
+    assert(segment != NULL, "Unable to find DYNAMIC segment.");
 
-    v_size_t needed_lib_name_idxs = {0, 0, NULL};
-    size_t lib_name_idx = 0, lib_search_paths_idx = 0;
-    for (Dynamic *dyn = (Dynamic *) (base + dyn_seg->memory_offset); dyn->type != DN_NULL; dyn++) {
+    vec_size_t needed_lib_name_idxs;
+    memset(&needed_lib_name_idxs, 0, sizeof(vec_size_t));
+
+    size_t lib_search_paths_idx = 0;
+    for (Dynamic *dyn = (Dynamic *) (base + segment->memory_offset); dyn->type != DN_NULL; dyn++) {
         char *ptr = base + dyn->value;
         switch (dyn->type) {
             case DN_NEEDED:
@@ -103,19 +107,19 @@ static void get_dynamic_info(DynamicInfo *dyn_info, char *base, const ELFHeader 
             case DN_PLT_SIZE:
                 break;
             case DN_PLT_GOT:
-                dyn_info->plt_got = (uint64_t *) ptr;
+                info->plt_got = (uint64_t *) ptr;
                 break;
             case DN_HASH:
-                assert(false, "DN_HASH UNIMPLEMENTED");  // TODO:
+                assert(false, "DN_HASH UNIMPLEMENTED");
                 break;
             case DN_STRING_TABLE:
-                dyn_info->string_table = ptr;
+                info->string_table = ptr;
                 break;
             case DN_SYMBOL_TABLE:
-                dyn_info->symbols = (Symbol *) ptr;
+                info->symbol_table = (Symbol *) ptr;
                 break;
             case DN_RELA:
-                assert(false, "DN_RELA UNIMPLEMENTED");  // TODO:
+                assert(false, "DN_RELA UNIMPLEMENTED");
                 break;
             case DN_RELA_SIZE:
                 break;
@@ -128,28 +132,28 @@ static void get_dynamic_info(DynamicInfo *dyn_info, char *base, const ELFHeader 
                 assert(dyn->value == sizeof(Symbol), "Size mismatch between struct Symbol and DN_SYMBOL_ENTRY_SIZE.");
                 break;
             case DN_INIT:
-                assert(false, "DN_INIT UNIMPLEMENTED");  // TODO:
+                assert(false, "DN_INIT UNIMPLEMENTED");
                 break;
             case DN_FINI:
-                assert(false, "DN_FINI UNIMPLEMENTED");  // TODO:
+                assert(false, "DN_FINI UNIMPLEMENTED");
                 break;
             case DN_SO_NAME:
-                lib_name_idx = dyn->value;
+                assert(false, "DN_SO_NAME UNIMPLEMENTED");
                 break;
             case DN_RUNTIME_PATH:
                 lib_search_paths_idx = dyn->value;
                 break;
             case DN_SYMBOLIC:
-                assert(false, "DN_SYMBOLIC UNIMPLEMENTED");  // TODO:
+                assert(false, "DN_SYMBOLIC UNIMPLEMENTED");
                 break;
             case DN_REL:
-                assert(false, "DN_REL UNIMPLEMENTED");  // TODO:
+                assert(false, "DN_REL UNIMPLEMENTED");
                 break;
             case DN_REL_SIZE:
-                assert(false, "DN_REL_SIZE UNIMPLEMENTED");  // TODO:
+                assert(false, "DN_REL_SIZE UNIMPLEMENTED");
                 break;
             case DN_REL_ENTRY_SIZE:
-                assert(false, "DN_REL_ENTRY_SIZE UNIMPLEMENTED");  // TODO:
+                assert(false, "DN_REL_ENTRY_SIZE UNIMPLEMENTED");
                 break;
             case DN_PLT_REL_TYPE:
                 assert(dyn->value == RL_JUMP_SLOT,
@@ -158,59 +162,59 @@ static void get_dynamic_info(DynamicInfo *dyn_info, char *base, const ELFHeader 
             case DN_DEBUG:
                 break;
             case DN_TEXT_REL:
-                assert(false, "DN_TEXT_REL UNIMPLEMENTED");  // TODO:
+                assert(false, "DN_TEXT_REL UNIMPLEMENTED");
                 break;
             case DN_JUMP_RELOCS:
-                dyn_info->jump_relocs = (Rela *) ptr;
+                info->jump_relocs = (Rela *) ptr;
                 break;
             case DN_BIND_NOW:
-                assert(false, "DN_BIND_NOW UNIMPLEMENTED");  // TODO:
+                assert(false, "DN_BIND_NOW UNIMPLEMENTED");
                 break;
             case DN_INIT_ARRAY:
-                assert(false, "DN_INIT_ARRAY UNIMPLEMENTED");  // TODO:
+                assert(false, "DN_INIT_ARRAY UNIMPLEMENTED");
                 break;
             case DN_FINI_ARRAY:
-                assert(false, "DN_FINI_ARRAY UNIMPLEMENTED");  // TODO:
+                assert(false, "DN_FINI_ARRAY UNIMPLEMENTED");
                 break;
             case DN_INIT_ARRAY_SIZE:
-                assert(false, "DN_INIT_ARRAY_SIZE UNIMPLEMENTED");  // TODO:
+                assert(false, "DN_INIT_ARRAY_SIZE UNIMPLEMENTED");
                 break;
             case DN_FINI_ARRAY_SIZE:
-                assert(false, "DN_FINI_ARRAY_SIZE UNIMPLEMENTED");  // TODO:
+                assert(false, "DN_FINI_ARRAY_SIZE UNIMPLEMENTED");
                 break;
             case DN_LIBRARY_SEARCH_PATHS:
                 lib_search_paths_idx = dyn->value;
                 break;
             case DN_FLAGS:
-                assert(false, "DN_FLAGS UNIMPLEMENTED");  // TODO:
+                assert(false, "DN_FLAGS UNIMPLEMENTED");
                 break;
             case DN_ENCODING:
-                assert(false, "DN_ENCODING UNIMPLEMENTED");  // TODO:
+                assert(false, "DN_ENCODING UNIMPLEMENTED");
                 break;
             case DN_PREINIT_ARRAY:
-                assert(false, "DN_PREINIT_ARRAY UNIMPLEMENTED");  // TODO:
+                assert(false, "DN_PREINIT_ARRAY UNIMPLEMENTED");
                 break;
             case DN_PREINIT_ARRAY_SIZE:
-                assert(false, "DN_PREINIT_ARRAY_SIZE UNIMPLEMENTED");  // TODO:
+                assert(false, "DN_PREINIT_ARRAY_SIZE UNIMPLEMENTED");
                 break;
             case DN_SYMTAB_SHARED_IDX:
-                assert(false, "DN_SYMTAB_SHARED_IDX UNIMPLEMENTED");  // TODO:
+                assert(false, "DN_SYMTAB_SHARED_IDX UNIMPLEMENTED");
                 break;
             case DN_RELR_SIZE:
-                assert(false, "DN_RELR_SIZE UNIMPLEMENTED");  // TODO:
+                assert(false, "DN_RELR_SIZE UNIMPLEMENTED");
                 break;
             case DN_RELR:
-                assert(false, "DN_RELR UNIMPLEMENTED");  // TODO:
+                assert(false, "DN_RELR UNIMPLEMENTED");
                 break;
             case DN_RELR_ENTRY_SIZE:
-                assert(false, "DN_RELR_ENTRY_SIZE UNIMPLEMENTED");  // TODO:
+                assert(false, "DN_RELR_ENTRY_SIZE UNIMPLEMENTED");
                 break;
             case DN_GNU_HASH: {
                 GNUHashTable hash_table = *((GNUHashTable *) ptr);  // inits first 4 uint32_t fields
                 hash_table.bloom_filter = (uint64_t *) (ptr + 4 * sizeof(uint32_t));
                 hash_table.buckets = (uint32_t *) (hash_table.bloom_filter + hash_table.bloom_size);
                 hash_table.chains = hash_table.buckets + hash_table.buckets_num;
-                dyn_info->gnu_hash_table = hash_table;
+                info->gnu_hash_table = hash_table;
             } break;
             case DN_FLAGS_1:
                 break;
@@ -220,12 +224,12 @@ static void get_dynamic_info(DynamicInfo *dyn_info, char *base, const ELFHeader 
         }
     }
 
-    // TODO: assert mandatory fields
-
-    if (lib_name_idx) dyn_info->lib_name = dyn_info->string_table + lib_name_idx;
+    assert(info->string_table != NULL, "Unable to find string table.");
+    assert(info->symbol_table != NULL, "Unable to find symbol table.");
+    assert(info->gnu_hash_table.buckets != NULL, "Unable to find hash table.");
 
     if (lib_search_paths_idx) {
-        const char *p = dyn_info->string_table + lib_search_paths_idx;
+        const char *p = info->string_table + lib_search_paths_idx;
         while (*p) {
             const char *path_begin = p;
             while (*p && *p != ':') p++;
@@ -234,7 +238,7 @@ static void get_dynamic_info(DynamicInfo *dyn_info, char *base, const ELFHeader 
             char *path = (char *) malloc(path_length + 1);
             memcpy(path, path_begin, path_length);
             path[path_length] = '\0';
-            VECTOR_PUSH(dyn_info->lib_search_paths, path);
+            VECTOR_PUSH(info->lib_search_paths, path);
 
             if (*p == ':') p++;
         }
@@ -242,11 +246,12 @@ static void get_dynamic_info(DynamicInfo *dyn_info, char *base, const ELFHeader 
 
     for (size_t i = 0; i < needed_lib_name_idxs.length; i++) {
         size_t idx = needed_lib_name_idxs.elements[i];
-        VECTOR_PUSH(dyn_info->needed_libs, dyn_info->string_table + idx);
+        VECTOR_PUSH(info->needed_libs, info->string_table + idx);
     }
+    VECTOR_FREE(needed_lib_name_idxs);
 }
 
-static int open_library(const v_str *library_search_paths, const char *library_name) {
+static int open_library(const vec_cstr *library_search_paths, const char *library_name) {
     static char library_path[MAX_PATH_LENGTH];
 
     for (size_t i = 0; i < library_search_paths->length; i++) {
@@ -266,7 +271,6 @@ static int open_library(const v_str *library_search_paths, const char *library_n
 }
 
 static char *load_library(const ELFHeader *lib_elf, int fd) {
-    uint64_t dynamic_offset = 0;
     size_t lib_elf_size = 0;
     lseek(fd, lib_elf->segments_offset, SEEK_SET);
     for (size_t i = 0; i < lib_elf->segment_entry_num; i++) {
@@ -276,11 +280,8 @@ static char *load_library(const ELFHeader *lib_elf, int fd) {
         if (seg.type == SG_LOAD) {
             size_t new_size = seg.memory_offset + seg.memory_size;
             if (new_size > lib_elf_size) lib_elf_size = new_size;
-        } else if (seg.type == SG_DYNAMIC) {
-            dynamic_offset = seg.memory_offset;
         }
     }
-    assert(dynamic_offset > 0 && dynamic_offset < lib_elf_size, "Invalid offset of DYNAMIC segment.");
 
     // memory of this mmap is not used, because the purpose of this call is to locate
     // contiguous chunk of address space which later gets overriden with library data
@@ -326,40 +327,33 @@ static char *load_library(const ELFHeader *lib_elf, int fd) {
 }
 
 static Symbol *find_symbol(const DynamicInfo *info, const char *symbol_name) {
-    // check with bloom filter
     uint32_t hash = elf_gnu_hash(symbol_name);
-    if (!elf_gnu_bloom_test(&info->gnu_hash_table, hash))
-        assert(false, "UNIMPLEMENTED: handle symbols not found in bloom filter");
+    if (!elf_gnu_bloom_test(&info->gnu_hash_table, hash)) return NULL;
 
-    // get symbol index
     uint32_t sym_idx = info->gnu_hash_table.buckets[hash % info->gnu_hash_table.buckets_num];
-    if (sym_idx < info->gnu_hash_table.first_symbol_index)
-        assert(false, "UNIMPLEMENTED: handle symbols not found in hash table buckets");
+    if (sym_idx < info->gnu_hash_table.first_symbol_index) return NULL;
 
-    // look for entry with matching hash in hash chains
-    Symbol *cur_sym = NULL;
+    Symbol *sym = NULL;
     while (1) {
         uint32_t chain_index = sym_idx - info->gnu_hash_table.first_symbol_index;
         uint32_t chain_hash = info->gnu_hash_table.chains[chain_index];
 
         if ((hash | 1) == (chain_hash | 1)) {
-            cur_sym = &info->symbols[sym_idx];
-            if (strings_are_equal(symbol_name, info->string_table + cur_sym->name_offset)) return cur_sym;
+            sym = info->symbol_table + sym_idx;
+            if (strings_are_equal(symbol_name, info->string_table + sym->name_offset)) return sym;
         }
 
         if (chain_hash & 1) break;  // end of chain
         sym_idx++;
     }
-    assert(false, "UNIMPLEMENTED: handle symbols not found in hash table chains");
+
+    return NULL;
 }
 
-static void link(char *prog_base, const ELFHeader *prog_elf) {
-    DynamicInfo prog_info;
-    get_dynamic_info(&prog_info, prog_base, prog_elf);
-
-    assert(prog_info.needed_libs.length == 1, "multiple libs are UNIMPLEMENTED");  // TODO:
-    for (size_t i = 0; i < prog_info.needed_libs.length; i++) {
-        int fd = open_library(&prog_info.lib_search_paths, prog_info.needed_libs.elements[i]);
+static void link(char *prog_base, const DynamicInfo *prog_info) {
+    assert(prog_info->needed_libs.length == 1, "multiple libs are UNIMPLEMENTED");  // TODO:
+    for (size_t i = 0; i < prog_info->needed_libs.length; i++) {
+        int fd = open_library(&prog_info->lib_search_paths, prog_info->needed_libs.elements[i]);
 
         ELFHeader lib_elf;
         read(fd, &lib_elf, sizeof(lib_elf));  // TODO: do we even have to open it to begin with?
@@ -371,22 +365,23 @@ static void link(char *prog_base, const ELFHeader *prog_elf) {
         DynamicInfo lib_info;
         get_dynamic_info(&lib_info, lib_base, &lib_elf);
 
-        for (Rela *rela = prog_info.jump_relocs; rela->offset != NULL; rela++) {
+        for (Rela *rela = prog_info->jump_relocs; rela->offset != NULL; rela++) {
             assert(rela->addend == 0, "Error initializing PLT: REL_JUMP_SLOT doesn't use addend.");
             assert(rela->info.v.type == RL_JUMP_SLOT,
                    "Error initializing PLT entries: relocation type must be REL_JUMP_SLOT.");
 
-            Symbol sym = prog_info.symbols[rela->info.v.symbol_index];
-            assert(sym.binding == SMB_GLOBAL || sym.binding == SMB_WEAK,
+            Symbol *sym = prog_info->symbol_table + rela->info.v.symbol_index;
+            assert(sym->binding == SMB_GLOBAL || sym->binding == SMB_WEAK,
                    "Error initializing PLT: relocated symbol must have GLOBAL or WEAK binding.");
-            assert(sym.type == SMT_FUNC, "Error initializing PLT: relocated symbol must be of type FUNC.");
-            assert(sym.visibility == SMV_DEFAULT,
+            assert(sym->type == SMT_FUNC, "Error initializing PLT: relocated symbol must be of type FUNC.");
+            assert(sym->visibility == SMV_DEFAULT,
                    "Error initializing PLT: relocated symbol must have DEFAULT visibility.");
 
-            const char *rel_symbol_name = prog_info.string_table + sym.name_offset;
-            Symbol *sym = find_symbol(&lib_info, rel_symbol_name);
+            const char *rel_symbol_name = prog_info->string_table + sym->name_offset;
+            Symbol *csym = find_symbol(&lib_info, rel_symbol_name);
+            assert(csym != NULL, "something");
 
-            *((uint64_t *) (prog_base + rela->offset)) = (uint64_t) (lib_base + sym->value);
+            *((uint64_t *) (prog_base + rela->offset)) = (uint64_t) (lib_base + csym->value);
         }
 
         // TODO: link itself
@@ -396,11 +391,13 @@ static void link(char *prog_base, const ELFHeader *prog_elf) {
 void entry() {
     Args args = get_args();
     char *prog_base = get_prog_base(&args);
-
     ELFHeader *prog_elf = (ELFHeader *) prog_base;
     check_elf_header(prog_elf);
 
-    link(prog_base, prog_elf);
+    DynamicInfo prog_info;
+    get_dynamic_info(&prog_info, prog_base, prog_elf);
+
+    link(prog_base, &prog_info);
 
     main_t *main;
     FUN_PTR_CAST(main) = prog_base + prog_elf->entry;
