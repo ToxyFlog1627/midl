@@ -92,7 +92,7 @@ static void get_dynamic_info(DynamicInfo *dyn_info, char *base, const ELFHeader 
     }
     assert(dyn_seg != NULL, "Unable to find DYNAMIC segment.");
 
-    v_size_t needed_lib_name_idxs;
+    v_size_t needed_lib_name_idxs = {0, 0, NULL};
     size_t lib_name_idx = 0, lib_search_paths_idx = 0;
     for (Dynamic *dyn = (Dynamic *) (base + dyn_seg->memory_offset); dyn->type != DN_NULL; dyn++) {
         char *ptr = base + dyn->value;
@@ -106,7 +106,7 @@ static void get_dynamic_info(DynamicInfo *dyn_info, char *base, const ELFHeader 
                 dyn_info->plt_got = (uint64_t *) ptr;
                 break;
             case DN_HASH:
-                assert(false, "UNIMPLEMENTED");  // TODO:
+                assert(false, "DN_HASH UNIMPLEMENTED");  // TODO:
                 break;
             case DN_STRING_TABLE:
                 dyn_info->string_table = ptr;
@@ -265,11 +265,99 @@ static int open_library(const v_str *library_search_paths, const char *library_n
     exit(1);
 }
 
+static char *load_library(const ELFHeader *lib_elf, int fd) {
+    uint64_t dynamic_offset = 0;
+    size_t lib_elf_size = 0;
+    lseek(fd, lib_elf->segments_offset, SEEK_SET);
+    for (size_t i = 0; i < lib_elf->segment_entry_num; i++) {
+        Segment seg;
+        read(fd, &seg, sizeof(seg));
+
+        if (seg.type == SG_LOAD) {
+            size_t new_size = seg.memory_offset + seg.memory_size;
+            if (new_size > lib_elf_size) lib_elf_size = new_size;
+        } else if (seg.type == SG_DYNAMIC) {
+            dynamic_offset = seg.memory_offset;
+        }
+    }
+    assert(dynamic_offset > 0 && dynamic_offset < lib_elf_size, "Invalid offset of DYNAMIC segment.");
+
+    // memory of this mmap is not used, because the purpose of this call is to locate
+    // contiguous chunk of address space which later gets overriden with library data
+    char *lib_base = mmap(NULL, lib_elf_size, MAP_PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, NULL, NULL);
+    if (((int64_t) lib_base) < 0) {
+        print("Anonymous mmap failed: unable to allocate memory for shared library.");
+        exit(1);
+    }
+
+    uint64_t prev_mmap_end = 0;
+    lseek(fd, lib_elf->segments_offset, SEEK_SET);
+    for (size_t i = 0; i < lib_elf->segment_entry_num; i++) {
+        Segment seg;
+        read(fd, &seg, sizeof(seg));
+
+        if (seg.type == SG_LOAD) {
+            assert(seg.memory_size == seg.file_size, "Segments with mem_size != file_size are unimplemented.");
+
+            if (seg.memory_offset % seg.alignment != 0) {
+                assert(seg.file_offset % seg.alignment == seg.memory_offset % seg.alignment,
+                       "Memory and file offsets must be equally misaligned.");
+
+                uint64_t aligned_file_offset = ALIGN(seg.file_offset, seg.alignment);
+                uint64_t aligned_memory_offset = ALIGN(seg.memory_offset, seg.alignment);
+
+                seg.file_size += seg.file_offset - aligned_file_offset + seg.file_size;
+                seg.file_offset = aligned_file_offset;
+                seg.memory_offset = aligned_memory_offset;
+            }
+
+            assert(seg.memory_offset >= prev_mmap_end, "Mmaped segments overlap.");
+            void *result = mmap(lib_base + seg.memory_offset, seg.file_size, seg.flags, MAP_PRIVATE | MAP_FIXED, fd,
+                                seg.file_offset);
+            if (((int64_t) result) < 0) {
+                print("mmap failed: unable to load shared library.");
+                exit(1);
+            }
+            prev_mmap_end = seg.memory_offset + seg.file_size;
+        }
+    }
+
+    return lib_base;
+}
+
+static Symbol *find_symbol(const DynamicInfo *info, const char *symbol_name) {
+    // check with bloom filter
+    uint32_t hash = elf_gnu_hash(symbol_name);
+    if (!elf_gnu_bloom_test(&info->gnu_hash_table, hash))
+        assert(false, "UNIMPLEMENTED: handle symbols not found in bloom filter");
+
+    // get symbol index
+    uint32_t sym_idx = info->gnu_hash_table.buckets[hash % info->gnu_hash_table.buckets_num];
+    if (sym_idx < info->gnu_hash_table.first_symbol_index)
+        assert(false, "UNIMPLEMENTED: handle symbols not found in hash table buckets");
+
+    // look for entry with matching hash in hash chains
+    Symbol *cur_sym = NULL;
+    while (1) {
+        uint32_t chain_index = sym_idx - info->gnu_hash_table.first_symbol_index;
+        uint32_t chain_hash = info->gnu_hash_table.chains[chain_index];
+
+        if ((hash | 1) == (chain_hash | 1)) {
+            cur_sym = &info->symbols[sym_idx];
+            if (strings_are_equal(symbol_name, info->string_table + cur_sym->name_offset)) return cur_sym;
+        }
+
+        if (chain_hash & 1) break;  // end of chain
+        sym_idx++;
+    }
+    assert(false, "UNIMPLEMENTED: handle symbols not found in hash table chains");
+}
+
 static void link(char *prog_base, const ELFHeader *prog_elf) {
     DynamicInfo prog_info;
     get_dynamic_info(&prog_info, prog_base, prog_elf);
 
-    assert(prog_info.needed_libs.length == 1, "UNIMPLEMENTED");  // TODO:
+    assert(prog_info.needed_libs.length == 1, "multiple libs are UNIMPLEMENTED");  // TODO:
     for (size_t i = 0; i < prog_info.needed_libs.length; i++) {
         int fd = open_library(&prog_info.lib_search_paths, prog_info.needed_libs.elements[i]);
 
@@ -277,61 +365,7 @@ static void link(char *prog_base, const ELFHeader *prog_elf) {
         read(fd, &lib_elf, sizeof(lib_elf));  // TODO: do we even have to open it to begin with?
         check_elf_header(&lib_elf);
 
-        uint64_t dynamic_offset = 0;
-        size_t lib_elf_size = 0;
-        lseek(fd, lib_elf.segments_offset, SEEK_SET);
-        for (size_t i = 0; i < lib_elf.segment_entry_num; i++) {
-            Segment seg;
-            read(fd, &seg, sizeof(seg));
-
-            if (seg.type == SG_LOAD) {
-                size_t new_size = seg.memory_offset + seg.memory_size;
-                if (new_size > lib_elf_size) lib_elf_size = new_size;
-            } else if (seg.type == SG_DYNAMIC) {
-                dynamic_offset = seg.memory_offset;
-            }
-        }
-        assert(dynamic_offset > 0 && dynamic_offset < lib_elf_size, "Invalid offset of DYNAMIC segment.");
-
-        // memory of this mmap is not used, because the purpose of this call is to locate
-        // contiguous chunk of address space which later gets overriden with library data
-        char *lib_base = mmap(NULL, lib_elf_size, MAP_PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, NULL, NULL);
-        if (((int64_t) lib_base) < 0) {
-            print("Anonymous mmap failed: unable to allocate memory for shared library.");
-            exit(1);
-        }
-
-        uint64_t prev_mmap_end = 0;
-        lseek(fd, lib_elf.segments_offset, SEEK_SET);
-        for (size_t i = 0; i < lib_elf.segment_entry_num; i++) {
-            Segment seg;
-            read(fd, &seg, sizeof(seg));
-
-            if (seg.type == SG_LOAD) {
-                assert(seg.memory_size == seg.file_size, "Segments with mem_size != file_size are unimplemented.");
-
-                if (seg.memory_offset % seg.alignment != 0) {
-                    assert(seg.file_offset % seg.alignment == seg.memory_offset % seg.alignment,
-                           "Memory and file offsets must be equally misaligned.");
-
-                    uint64_t aligned_file_offset = ALIGN(seg.file_offset, seg.alignment);
-                    uint64_t aligned_memory_offset = ALIGN(seg.memory_offset, seg.alignment);
-
-                    seg.file_size += seg.file_offset - aligned_file_offset + seg.file_size;
-                    seg.file_offset = aligned_file_offset;
-                    seg.memory_offset = aligned_memory_offset;
-                }
-
-                assert(seg.memory_offset >= prev_mmap_end, "Mmaped segments overlap.");
-                void *result = mmap(lib_base + seg.memory_offset, seg.file_size, seg.flags, MAP_PRIVATE | MAP_FIXED, fd,
-                                    seg.file_offset);
-                if (((int64_t) result) < 0) {
-                    print("mmap failed: unable to load shared library.");
-                    exit(1);
-                }
-                prev_mmap_end = seg.memory_offset + seg.file_size;
-            }
-        }
+        char *lib_base = load_library(&lib_elf, fd);
         close(fd);
 
         DynamicInfo lib_info;
@@ -350,40 +384,12 @@ static void link(char *prog_base, const ELFHeader *prog_elf) {
                    "Error initializing PLT: relocated symbol must have DEFAULT visibility.");
 
             const char *rel_symbol_name = prog_info.string_table + sym.name_offset;
+            Symbol *sym = find_symbol(&lib_info, rel_symbol_name);
 
-            // check with bloom filter
-            uint32_t hash = elf_gnu_hash(rel_symbol_name);
-            if (!elf_gnu_bloom_test(&lib_info.gnu_hash_table, hash))
-                assert(false, "UNIMPLEMENTED: handle symbols not found in bloom filter");
-
-            // get symbol index
-            uint32_t sym_idx = lib_info.gnu_hash_table.buckets[hash % lib_info.gnu_hash_table.buckets_num];
-            if (sym_idx < lib_info.gnu_hash_table.first_symbol_index)
-                assert(false, "UNIMPLEMENTED: handle symbols not found in hash table buckets");
-
-            // look for entry with matching hash in hash chains
-            Symbol cur_sym;
-            bool found = false;
-            while (1) {
-                uint32_t chain_index = sym_idx - lib_info.gnu_hash_table.first_symbol_index;
-                uint32_t chain_hash = lib_info.gnu_hash_table.chains[chain_index];
-
-                if ((hash | 1) == (chain_hash | 1)) {
-                    cur_sym = lib_info.symbols[sym_idx];
-                    if (strings_are_equal(rel_symbol_name, lib_info.string_table + cur_sym.name_offset)) {
-                        found = true;
-                        break;
-                    }
-                }
-
-                if (chain_hash & 1) break;  // end of chain
-                sym_idx++;
-            }
-            if (!found) assert(false, "UNIMPLEMENTED: handle symbols not found in hash table chains");
-
-            // relocate it
-            *((uint64_t *) (prog_base + rela->offset)) = (uint64_t) (lib_base + cur_sym.value);
+            *((uint64_t *) (prog_base + rela->offset)) = (uint64_t) (lib_base + sym->value);
         }
+
+        // TODO: link itself
     }
 }
 
