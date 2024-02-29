@@ -27,12 +27,37 @@ void assert(bool condition, const char *error_msg) {
     exit(1);
 }
 
+size_t strlen(const char *msg) {
+    size_t len = 0;
+    while (msg[len] != '\0') len++;
+    return len;
+}
+
+// NOTE: this partial implementation always returns 1 if strings are different
+int strcmp(const char *s1, const char *s2) {
+    while (*s1 && *s2 && *s1 == *s2) {
+        s1++;
+        s2++;
+    }
+
+    if (*s1 == '\0' && *s2 == '\0') return 0;
+    return 1;
+}
+
+char *strdup(const char *s) {
+    size_t len = strlen(s);
+    char *copy = (char *) malloc(len + 1);
+    memcpy(copy, s, len);
+    copy[len] = '\0';
+    return copy;
+}
+
 void memcpy(void *dest, const void *src, size_t n) {
     char *to = (char *) dest, *from = (char *) src;
     while (n--) *(to++) = *(from++);
 }
 
-// NOTE: this partial implementation always returns 1 if strings are different
+// NOTE: this partial implementation always returns 1 if data is different
 int memcmp(const void *s1, const void *s2, size_t n) {
     if (n == 0) return 0;
 

@@ -1,14 +1,9 @@
 #include "print.h"
 #include "syscalls.h"
 #include "types.h"
+#include "ulibc.h"
 
 #define PRINT_NUM_BUF_SIZE 32
-
-size_t strlen(const char *msg) {
-    size_t len = 0;
-    while (msg[len] != '\0') len++;
-    return len;
-}
 
 int print(const char *msg) { return write(STDOUT, msg, strlen(msg)); }
 

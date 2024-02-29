@@ -1,5 +1,5 @@
-#ifndef SYSCALL_H
-#define SYSCALL_H
+#ifndef SYSCALLS_H
+#define SYSCALLS_H
 
 #include "types.h"
 
@@ -76,4 +76,4 @@ typedef struct {
     char *filename;
 } dirent64;
 
-#endif  // SYSCALL_H
+#endif  // SYSCALLS_H

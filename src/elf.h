@@ -176,16 +176,8 @@ typedef struct {
     uint32_t *chains;
 } GNUHashTable;
 
-uint32_t elf_gnu_hash(const char *s) {
-    uint32_t h = 5381;
-    for (unsigned char c = *s; c != '\0'; c = *++s) h = h * 33 + c;
-    return h;
-}
+// Helpers
 
-bool elf_gnu_bloom_test(const GNUHashTable *h, uint32_t hash) {
-    uint64_t word = h->bloom_filter[(hash / 64) % h->bloom_size];
-    uint64_t mask = (((uint64_t) 1) << (hash % 64)) | (((uint64_t) 1) << ((hash >> h->bloom_shift) % 64));
-    return (word & mask) == mask;
-}
+void check_elf_header(ELFHeader *header);
 
 #endif  // ELF_H
