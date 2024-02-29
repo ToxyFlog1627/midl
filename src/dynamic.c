@@ -20,6 +20,8 @@ Dynamic get_dynamic(char *base, const ELFHeader *elf) {
     memset(&needed_library_name_indexes, 0, sizeof(vec_size_t));
 
     size_t library_search_paths_index = 0;
+    void_fun_t **init_array = NULL, **fini_array = NULL;
+    size_t init_array_size = 0, fini_array_size = 0;
     for (ELFDynamic *dyn = (ELFDynamic *) (base + dynamic_segment->memory_offset); dyn->type != DN_NULL; dyn++) {
         char *ptr = base + dyn->value;
         switch (dyn->type) {
@@ -48,22 +50,26 @@ Dynamic get_dynamic(char *base, const ELFHeader *elf) {
                 dynamic.rela_count = dyn->value / sizeof(ELFRela);
                 break;
             case DN_RELA_ENTRY_SIZE:
-                assert(dyn->value == sizeof(ELFRela), "Size mismatch between struct Rela and DN_RELA_ENTRY_SIZE.");
+                assert(dyn->value == sizeof(ELFRela),
+                       "ERROR: Size mismatch between struct Rela and DN_RELA_ENTRY_SIZE.");
                 break;
             case DN_STRING_TABLE_SIZE:
                 break;
             case DN_SYMBOL_ENTRY_SIZE:
                 assert(dyn->value == sizeof(ELFSymbol),
-                       "Size mismatch between struct Symbol and DN_SYMBOL_ENTRY_SIZE.");
+                       "ERROR: Size mismatch between struct Symbol and DN_SYMBOL_ENTRY_SIZE.");
                 break;
-            case DN_INIT:
-                dynamic.init = ptr;
-                break;
-            case DN_FINI:
-                UNIMPLEMENTED("DN_FINI");
-                break;
+            case DN_INIT: {
+                void_fun_t *init;
+                FUN_PTR_CAST(init) = ptr;
+                VECTOR_PUSH(dynamic.init_array, init);
+            } break;
+            case DN_FINI: {
+                void_fun_t *fini;
+                FUN_PTR_CAST(fini) = ptr;
+                VECTOR_PUSH(dynamic.fini_array, fini);
+            } break;
             case DN_SO_NAME:
-                UNIMPLEMENTED("DN_SO_NAME");
                 break;
             case DN_RUNTIME_PATH:
                 library_search_paths_index = dyn->value;
@@ -94,16 +100,16 @@ Dynamic get_dynamic(char *base, const ELFHeader *elf) {
                 UNIMPLEMENTED("DN_BIND_NOW");
                 break;
             case DN_INIT_ARRAY:
-                UNIMPLEMENTED("DN_INIT_ARRAY");
+                FUN_PTR_CAST(init_array) = ptr;
                 break;
             case DN_FINI_ARRAY:
-                UNIMPLEMENTED("DN_FINI_ARRAY");
+                FUN_PTR_CAST(fini_array) = ptr;
                 break;
             case DN_INIT_ARRAY_SIZE:
-                UNIMPLEMENTED("DN_INIT_ARRAY_SIZE");
+                init_array_size = dyn->value;
                 break;
             case DN_FINI_ARRAY_SIZE:
-                UNIMPLEMENTED("DN_FINI_ARRAY_SIZE");
+                fini_array_size = dyn->value;
                 break;
             case DN_LIBRARY_SEARCH_PATHS:
                 library_search_paths_index = dyn->value;
@@ -124,13 +130,13 @@ Dynamic get_dynamic(char *base, const ELFHeader *elf) {
                 UNIMPLEMENTED("DN_SYMTAB_SHARED_IDX");
                 break;
             case DN_RELR_SIZE:
-                UNIMPLEMENTED("DN_RELR_SIZE");
+                dynamic.relr_count = dyn->value / sizeof(uint64_t);
                 break;
             case DN_RELR:
-                UNIMPLEMENTED("DN_RELR");
+                dynamic.relrs = (uint64_t *) ptr;
                 break;
             case DN_RELR_ENTRY_SIZE:
-                UNIMPLEMENTED("DN_RELR_ENTRY_SIZE");
+                assert(dyn->value == sizeof(uint64_t), "ERROR: Size mismatch in RELR.");
                 break;
             case DN_GNU_HASH: {
                 GNUHashTable hash_table = *((GNUHashTable *) ptr);  // inits first 4 uint32_t fields
@@ -141,6 +147,21 @@ Dynamic get_dynamic(char *base, const ELFHeader *elf) {
             } break;
             case DN_FLAGS_1:
                 print("INFO: ignoring DN_FLAGS_1\n");
+                break;
+            case DN_VERSYM:
+                print("INFO: ignoring DN_VERSYM\n");
+                break;
+            case DN_VERDEF:
+                print("INFO: ignoring DN_VERDEF\n");
+                break;
+            case DN_VERDEFNUM:
+                print("INFO: ignoring DN_VERDEFNUM\n");
+                break;
+            case DN_VERNEED:
+                print("INFO: ignoring DN_VERNEED\n");
+                break;
+            case DN_VERNEEDNUM:
+                print("INFO: ignoring DN_VERNEEDNUM\n");
                 break;
             default:
                 print("WARNING: Dynamic entry of unkown type.\n");
@@ -172,6 +193,9 @@ Dynamic get_dynamic(char *base, const ELFHeader *elf) {
         VECTOR_PUSH(dynamic.needed_libraries, dynamic.string_table + needed_library_name_indexes.data[i]);
     }
     VECTOR_FREE(needed_library_name_indexes);
+
+    for (size_t i = 0; i < init_array_size; i++) VECTOR_PUSH(dynamic.init_array, init_array[i]);
+    for (size_t i = 0; i < fini_array_size; i++) VECTOR_PUSH(dynamic.fini_array, fini_array[i]);
 
     return dynamic;
 }

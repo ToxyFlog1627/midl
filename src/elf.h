@@ -10,6 +10,7 @@
 #define ELF_LSB          1
 #define ELF_VERSION      1
 #define ELF_SYSV_ABI     0
+#define ELF_GNU_ABI      3
 #define ELF_ABI_VERSION  0
 #define ELF_EXEC_DYNAMIC 3
 #define ELF_AMD64        62
@@ -152,7 +153,12 @@ enum DYNAMIC_TYPES {
     DN_RELR_ENTRY_SIZE,
     _DN_SIZE,
     DN_GNU_HASH = 0x6FFFFEF5,
-    DN_FLAGS_1 = 0x6FFFFFFB
+    DN_VERSYM = 0X6FFFFFF0,
+    DN_FLAGS_1 = 0x6FFFFFFB,
+    DN_VERDEF = 0X6FFFFFFC,
+    DN_VERDEFNUM = 0X6FFFFFFD,
+    DN_VERNEED = 0X6FFFFFFE,
+    DN_VERNEEDNUM = 0X6FFFFFFF
 };
 
 typedef struct {

@@ -1,5 +1,5 @@
 # MIDL - MInimal Dynamic Linker
-MIDL is a small dynamic linker written for 64-bit Intel Linux in order to learn more about shared libraries and ELF. \
+MIDL is a small dynamic linker written for 64-bit Intel in order to learn more about shared libraries and ELF. \
 It only implements a small portion of all cases, just enough to make provided examples work.
 
 ## Compiling the linker
@@ -10,7 +10,7 @@ Linked must be of type `ELF 64-bit LSB shared object, x86-64, version 1 (SYSV), 
 
 Therefore, the following flags have to be used: \
 `-shared -Wl,-z,now -Wl,-Bstatic -Wl,-no-dynamic-linker -Wl,--dynamic-list=export.txt`\
-where `export.txt` is a list of exported symbol names (for now there are none), which makes other symbols internal.
+where `export.txt` is a list of exported symbol names (currently empty), which makes other symbols internal.
 
 ## Using the linker
 
@@ -42,7 +42,7 @@ Looking up a symbol access multiple data structures as follows:
 
 ### Relocating
 
-There are two ways of handling PLT entries - load them during init or lazily.
+There are two ways of resolving relocations - during init or lazily.
 
 The easier option is to handle them at initialization which means iterating over all relocations for all the libraries.
 
@@ -58,4 +58,5 @@ Handler then performs the necessary relocations, so that the same call will be i
 [Source of Linux kernel function which loads ELF](https://github.com/torvalds/linux/blob/master/fs/binfmt_elf.c#L819C12-L819C27) \
 [Other dynamic loader](https://github.com/Ferdi265/dynamic-loader) \
 [GNU Hash section layout summary](https://sourceware.org/legacy-ml/binutils/2006-10/msg00377.html) \
-[The process of looking up using GNU Hash (at 1.5.3 The GNU-style Hash Table)](https://www.akkadia.org/drepper/dsohowto.pdf)
+[The process of looking up using GNU Hash (at 1.5.3 The GNU-style Hash Table)](https://www.akkadia.org/drepper/dsohowto.pdf) \
+[GNU's ld-linux](https://github.com/bminor/glibc/blob/master/elf/rtld.c)

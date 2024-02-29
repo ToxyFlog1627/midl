@@ -19,4 +19,7 @@ typedef char bool;
 #define false 0
 #define true  1
 
+typedef void void_fun_t(void);
+#define FUN_PTR_CAST(fun_ptr) *((void **) &(fun_ptr))
+
 #endif  // TYPES_H

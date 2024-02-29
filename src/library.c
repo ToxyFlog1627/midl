@@ -22,11 +22,17 @@ static int open_library(const vec_cstr *library_search_paths, const char *librar
 
     for (size_t i = 0; i < library_search_paths->length; i++) {
         concat_path(library_path, library_search_paths->data[i], library_name);
-        int fd = open(library_path, O_RDWR, NULL);
+        int fd = open(library_path, O_RDONLY, NULL);
         if (fd >= 0) return fd;
     }
 
-    print("ERROR: unable to find shared library \"");
+    // TODO: more paths, read from /etc/ldconfig instead of hard coding
+    const char *standard_search_path = "/lib64";
+    concat_path(library_path, standard_search_path, library_name);
+    int fd = open(library_path, O_RDONLY, NULL);
+    if (fd >= 0) return fd;
+
+    print("ERROR: Unable to find shared library \"");
     print(library_name);
     print("\".\n");
     exit(1);

@@ -19,11 +19,8 @@ typedef struct {
 } Args;
 
 typedef int main_t(int argc, char **argv, char **envp);
-typedef void void_fun_t(void);
 
 static vec_libs loaded_libraries;
-
-#define FUN_PTR_CAST(fun_ptr) *((void **) &(fun_ptr))
 
 static Args get_args() {
     word stack_pointer;
@@ -56,11 +53,11 @@ static bool is_library_loaded(const char *library_name) {
     return false;
 }
 
-static void perform_rela_relocations(char *base, const Dynamic *dynamic, ELFRela *relas, size_t relas_count) {
+static void perform_rela_relocations(char *base, const Dynamic *dynamic, ELFRela *relas, size_t rela_count) {
     ELFRela *rela = relas;
-    for (size_t i = 0; i < relas_count; i++, rela++) {
-        const ELFSymbol *rel_sym = dynamic->symbol_table + rela->info.v.symbol_index;
-        const char *symbol_name = dynamic->string_table + rel_sym->name_offset;
+    for (size_t i = 0; i < rela_count; i++, rela++) {
+        const ELFSymbol *rela_symbol = dynamic->symbol_table + rela->info.v.symbol_index;
+        const char *symbol_name = dynamic->string_table + rela_symbol->name_offset;
 
         ELFSymbol *symbol = find_symbol(dynamic, symbol_name);
         if (symbol) {
@@ -86,6 +83,24 @@ static void perform_rela_relocations(char *base, const Dynamic *dynamic, ELFRela
     }
 }
 
+static void perform_relr_relocations(char *base, const Dynamic *dynamic, ELFRela *relrs, size_t relr_count) {
+    UNIMPLEMENTED("relr");
+    // uint64_t *where = NULL;
+    // uint64_t *relr = relrs;
+    // for (size_t i = 0; i < relr_count; i++, relr++) {
+    //     uint64_t entry = *relr;
+    //     if ((entry & 1) == 0) {
+    //         where = (uint64_t *) (base + entry);
+    //         *where++ += (uint64_t) base;
+    //     } else {
+    //         for (long i = 0; (entry >>= 1) != 0; i++) {
+    //             if ((entry & 1) != 0) where[i] += (uint64_t) base;
+    //         }
+    //         where += 8 * sizeof(uint64_t) - 1;
+    //     }
+    // }
+}
+
 static void resolve_symbols(char *base, const Dynamic *dynamic) {
     for (size_t i = 0; i < dynamic->needed_libraries.length; i++) {
         const char *library_name = dynamic->needed_libraries.data[i];
@@ -96,15 +111,13 @@ static void resolve_symbols(char *base, const Dynamic *dynamic) {
 
         resolve_symbols(library.base, &library.dynamic);
 
-        if (library.dynamic.init) {
-            void_fun_t *init;
-            FUN_PTR_CAST(init) = library.dynamic.init;
-            init();
-        }
+        for (size_t i = 0; i < library.dynamic.init_array.length; i++) library.dynamic.init_array.data[i]();
+        for (size_t i = 0; i < library.dynamic.fini_array.length; i++) UNIMPLEMENTED("fini");
     }
 
     if (dynamic->jump_relocs) perform_rela_relocations(base, dynamic, dynamic->jump_relocs, dynamic->jump_relocs_count);
     if (dynamic->relas) perform_rela_relocations(base, dynamic, dynamic->relas, dynamic->rela_count);
+    if (dynamic->relrs) perform_relr_relocations(base, dynamic, dynamic->relrs, dynamic->relr_count);
 }
 
 void entry() {
@@ -119,8 +132,6 @@ void entry() {
     main_t *main;
     FUN_PTR_CAST(main) = base + elf->entry;
     int exit_code = main(args.argc, args.argv, args.envp);
-
-    // TODO: fini
 
     exit(exit_code);
 }
