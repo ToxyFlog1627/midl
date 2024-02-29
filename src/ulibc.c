@@ -20,11 +20,11 @@ __attribute__((noreturn)) void exit(int exit_code) {
 }
 
 void assert(bool condition, const char *error_msg) {
-    if (!condition) {
-        print(error_msg);
-        if (error_msg[strlen(error_msg) - 1] != '\n') print("\n");
-        exit(1);
-    }
+    if (condition) return;
+
+    print(error_msg);
+    if (error_msg[strlen(error_msg) - 1] != '\n') print("\n");
+    exit(1);
 }
 
 void memcpy(void *dest, const void *src, size_t n) {
@@ -52,16 +52,16 @@ void *malloc(size_t n) {
     if (heap_end == NULL) heap_end = brk(0);
 
     for (MemoryChunk *prev = NULL, *cur = free_list; cur != NULL; prev = cur, cur = cur->next) {
+        if (cur->size < n) continue;
+
         // TODO: don't use whole chunk
-        if (cur->size >= n) {
-            if (prev) prev->next = cur->next;
-            else free_list = cur->next;
+        if (prev) prev->next = cur->next;
+        else free_list = cur->next;
 
-            cur->next = used_list;
-            used_list = cur;
+        cur->next = used_list;
+        used_list = cur;
 
-            return MEM_CHUNK_TO_PTR(cur);
-        }
+        return MEM_CHUNK_TO_PTR(cur);
     }
 
     MemoryChunk *new_chunk = (MemoryChunk *) heap_end;
@@ -76,17 +76,17 @@ void free(void *ptr) {
     assert(ptr != NULL, "UNIMPLEMENTED");
     MemoryChunk *chunk = PTR_TO_MEM_CHUNK(ptr);
     for (MemoryChunk *prev = NULL, *cur = used_list; cur != NULL; prev = cur, cur = cur->next) {
-        if (cur == chunk) {
-            if (prev) prev->next = cur->next;
-            else used_list = cur->next;
+        if (cur != chunk) continue;
 
-            chunk->next = free_list;
-            free_list = chunk;
+        if (prev) prev->next = cur->next;
+        else used_list = cur->next;
 
-            // TODO: merge free chunks of memory
+        chunk->next = free_list;
+        free_list = chunk;
 
-            return;
-        }
+        // TODO: merge free chunks of memory
+
+        return;
     }
     assert(false, "Freeing memory without mallocing it.");
 }

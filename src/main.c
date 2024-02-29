@@ -21,7 +21,6 @@ typedef struct {
     uint64_t *plt_got;
     char *string_table;
     Symbol *symbol_table;
-    char *lib_name;
     vec_cstr lib_search_paths;
     vec_cstr needed_libs;
     Rela *jump_relocs;
@@ -251,15 +250,21 @@ static void get_dynamic_info(DynamicInfo *info, char *base, const ELFHeader *elf
     VECTOR_FREE(needed_lib_name_idxs);
 }
 
+static void create_path(char *buffer, const char *path, const char *filename) {
+    size_t path_length = strlen(path), filename_length = strlen(filename);
+
+    memcpy(buffer, path, path_length);
+    buffer[path_length++] = '/';
+
+    memcpy(buffer + path_length, filename, filename_length);
+    buffer[path_length + filename_length] = '\0';
+}
+
 static int open_library(const vec_cstr *library_search_paths, const char *library_name) {
     static char library_path[MAX_PATH_LENGTH];
 
     for (size_t i = 0; i < library_search_paths->length; i++) {
-        size_t path_length = strlen(library_search_paths->elements[i]);
-        memcpy(library_path, library_search_paths->elements[i], path_length);
-        library_path[path_length] = '/';
-        memcpy(library_path + path_length + 1, library_name, strlen(library_name));
-
+        create_path(library_path, library_search_paths->elements[i], library_name);
         int fd = open(library_path, O_RDWR, NULL);
         if (fd >= 0) return fd;
     }
@@ -270,59 +275,77 @@ static int open_library(const vec_cstr *library_search_paths, const char *librar
     exit(1);
 }
 
+typedef struct {
+    uint64_t memory_offset;
+    uint64_t file_size;
+    uint64_t flags;
+    uint64_t file_offset;
+} LoadSegment;
+
+DEF_VECTOR_T(LoadSegment, load_seg_vec);
+
 static char *load_library(const ELFHeader *lib_elf, int fd) {
-    size_t lib_elf_size = 0;
+    // TODO: loading multiple libraries doesn't work properly due to initial memory_size calculation
+    // not taking alignment into account!
+
+    load_seg_vec load_segs;
+    memset(&load_segs, 0, sizeof(load_seg_vec));
+
+    // TODO: instead of this vector bullshit, simply read an array of segments into malloced memory
+    // change them there and then read again?
+
+    size_t memory_size = 0;
     lseek(fd, lib_elf->segments_offset, SEEK_SET);
     for (size_t i = 0; i < lib_elf->segment_entry_num; i++) {
         Segment seg;
         read(fd, &seg, sizeof(seg));
 
-        if (seg.type == SG_LOAD) {
-            size_t new_size = seg.memory_offset + seg.memory_size;
-            if (new_size > lib_elf_size) lib_elf_size = new_size;
+        if (seg.type != SG_LOAD) continue;
+        assert(seg.memory_size == seg.file_size, "Segments with mem_size != file_size are unimplemented.");
+
+        if (seg.memory_offset % seg.alignment != 0) {
+            assert(seg.file_offset % seg.alignment == seg.memory_offset % seg.alignment,
+                   "Memory and file offsets must be equally misaligned.");
+
+            uint64_t aligned_file_offset = ALIGN(seg.file_offset, seg.alignment);
+            uint64_t aligned_memory_offset = ALIGN(seg.memory_offset, seg.alignment);
+
+            seg.file_size += seg.file_offset - aligned_file_offset + seg.file_size;
+            seg.file_offset = aligned_file_offset;
+            seg.memory_offset = aligned_memory_offset;
         }
+
+        size_t new_size = seg.memory_offset + seg.file_size;
+        if (new_size > memory_size) memory_size = new_size;
+
+        LoadSegment load_seg = {seg.memory_offset, seg.file_size, seg.flags, seg.file_offset};
+        VECTOR_PUSH(load_segs, load_seg);
     }
 
     // memory of this mmap is not used, because the purpose of this call is to locate
     // contiguous chunk of address space which later gets overriden with library data
-    char *lib_base = mmap(NULL, lib_elf_size, MAP_PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, NULL, NULL);
+    char *lib_base = mmap(NULL, memory_size, MAP_PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, NULL, NULL);
     if (((int64_t) lib_base) < 0) {
-        print("Anonymous mmap failed: unable to allocate memory for shared library.");
+        print("Anonymous mmap failed: unable to allocate memory for a shared library.");
         exit(1);
     }
 
     uint64_t prev_mmap_end = 0;
     lseek(fd, lib_elf->segments_offset, SEEK_SET);
-    for (size_t i = 0; i < lib_elf->segment_entry_num; i++) {
-        Segment seg;
-        read(fd, &seg, sizeof(seg));
+    for (size_t i = 0; i < load_segs.length; i++) {
+        LoadSegment seg = load_segs.elements[i];
 
-        if (seg.type == SG_LOAD) {
-            assert(seg.memory_size == seg.file_size, "Segments with mem_size != file_size are unimplemented.");
-
-            if (seg.memory_offset % seg.alignment != 0) {
-                assert(seg.file_offset % seg.alignment == seg.memory_offset % seg.alignment,
-                       "Memory and file offsets must be equally misaligned.");
-
-                uint64_t aligned_file_offset = ALIGN(seg.file_offset, seg.alignment);
-                uint64_t aligned_memory_offset = ALIGN(seg.memory_offset, seg.alignment);
-
-                seg.file_size += seg.file_offset - aligned_file_offset + seg.file_size;
-                seg.file_offset = aligned_file_offset;
-                seg.memory_offset = aligned_memory_offset;
-            }
-
-            assert(seg.memory_offset >= prev_mmap_end, "Mmaped segments overlap.");
-            void *result = mmap(lib_base + seg.memory_offset, seg.file_size, seg.flags, MAP_PRIVATE | MAP_FIXED, fd,
-                                seg.file_offset);
-            if (((int64_t) result) < 0) {
-                print("mmap failed: unable to load shared library.");
-                exit(1);
-            }
-            prev_mmap_end = seg.memory_offset + seg.file_size;
+        assert(seg.memory_offset >= prev_mmap_end, "Mmaped segments overlap.");
+        void *result = mmap(lib_base + seg.memory_offset, seg.file_size, seg.flags, MAP_PRIVATE | MAP_FIXED, fd,
+                            seg.file_offset);
+        if (((int64_t) result) < 0) {
+            print("mmap failed: unable to load shared library.");
+            exit(1);
         }
+        prev_mmap_end = seg.memory_offset + seg.file_size;
     }
 
+    VECTOR_FREE(load_segs);
     return lib_base;
 }
 
@@ -350,42 +373,87 @@ static Symbol *find_symbol(const DynamicInfo *info, const char *symbol_name) {
     return NULL;
 }
 
-static void link(char *prog_base, const DynamicInfo *prog_info) {
-    assert(prog_info->needed_libs.length == 1, "multiple libs are UNIMPLEMENTED");  // TODO:
-    for (size_t i = 0; i < prog_info->needed_libs.length; i++) {
-        int fd = open_library(&prog_info->lib_search_paths, prog_info->needed_libs.elements[i]);
+typedef struct {
+    const char *name;
+    char *base;
+    DynamicInfo dyn_info;
+} LibInfo;
+
+DEF_VECTOR_T(LibInfo, vec_libs);
+
+static vec_libs libs;  // TODO: use pointers?
+
+// TODO: move + rename ^
+
+static void resolve_symbols(char *base, const DynamicInfo *info) {
+    for (size_t i = 0; i < info->needed_libs.length; i++) {
+        LibInfo lib_info;
+        lib_info.name = info->needed_libs.elements[i];
+
+        bool found = false;
+        for (size_t j = 0; j < libs.length; j++) {
+            if (strings_are_equal(libs.elements[j].name, lib_info.name)) {
+                found = true;
+                break;
+            }
+        }
+        if (found) break;
+
+        int fd = open_library(&info->lib_search_paths, lib_info.name);
 
         ELFHeader lib_elf;
         read(fd, &lib_elf, sizeof(lib_elf));  // TODO: do we even have to open it to begin with?
         check_elf_header(&lib_elf);
 
-        char *lib_base = load_library(&lib_elf, fd);
+        lib_info.base = load_library(&lib_elf, fd);
         close(fd);
 
-        DynamicInfo lib_info;
-        get_dynamic_info(&lib_info, lib_base, &lib_elf);
+        get_dynamic_info(&lib_info.dyn_info, lib_info.base, &lib_elf);
 
-        for (Rela *rela = prog_info->jump_relocs; rela->offset != NULL; rela++) {
-            assert(rela->addend == 0, "Error initializing PLT: REL_JUMP_SLOT doesn't use addend.");
-            assert(rela->info.v.type == RL_JUMP_SLOT,
-                   "Error initializing PLT entries: relocation type must be REL_JUMP_SLOT.");
+        VECTOR_PUSH(libs, lib_info);
 
-            Symbol *sym = prog_info->symbol_table + rela->info.v.symbol_index;
-            assert(sym->binding == SMB_GLOBAL || sym->binding == SMB_WEAK,
-                   "Error initializing PLT: relocated symbol must have GLOBAL or WEAK binding.");
-            assert(sym->type == SMT_FUNC, "Error initializing PLT: relocated symbol must be of type FUNC.");
-            assert(sym->visibility == SMV_DEFAULT,
-                   "Error initializing PLT: relocated symbol must have DEFAULT visibility.");
+        resolve_symbols(lib_info.base, &lib_info.dyn_info);
 
-            const char *rel_symbol_name = prog_info->string_table + sym->name_offset;
-            Symbol *csym = find_symbol(&lib_info, rel_symbol_name);
-            assert(csym != NULL, "something");
+        // TODO: init
+    }
 
-            *((uint64_t *) (prog_base + rela->offset)) = (uint64_t) (lib_base + csym->value);
+    if (!info->jump_relocs) return;
+    for (Rela *rela = info->jump_relocs; rela->offset != NULL; rela++) {
+        assert(rela->addend == 0, "Error initializing PLT: REL_JUMP_SLOT doesn't use addend.");
+        assert(rela->info.v.type == RL_JUMP_SLOT,
+               "Error initializing PLT entries: relocation type must be REL_JUMP_SLOT.");
+
+        Symbol *sym = info->symbol_table + rela->info.v.symbol_index;
+        assert(sym->binding == SMB_GLOBAL || sym->binding == SMB_WEAK,
+               "Error initializing PLT: relocated symbol must have GLOBAL or WEAK binding.");
+        assert(sym->type == SMT_FUNC, "Error initializing PLT: relocated symbol must be of type FUNC.");
+        assert(sym->visibility == SMV_DEFAULT,
+               "Error initializing PLT: relocated symbol must have DEFAULT visibility.");
+
+        const char *rel_symbol_name = info->string_table + sym->name_offset;
+
+        Symbol *csym = find_symbol(info, rel_symbol_name);
+        if (csym) {
+            *((uint64_t *) (base + rela->offset)) = (uint64_t) (base + csym->value);
+            continue;
         }
 
-        // TODO: link itself
+        bool found = false;
+        for (size_t j = 0; j < libs.length; j++) {
+            LibInfo lib_info = libs.elements[j];
+
+            Symbol *csym = find_symbol(&lib_info.dyn_info, rel_symbol_name);
+
+            if (csym) {
+                *((uint64_t *) (base + rela->offset)) = (uint64_t) (lib_info.base + csym->value);
+                found = true;
+                break;
+            }
+        }
+        assert(found, "UNIMPLEMENTED");
     }
+
+    // TODO: link itself
 }
 
 void entry() {
@@ -397,7 +465,7 @@ void entry() {
     DynamicInfo prog_info;
     get_dynamic_info(&prog_info, prog_base, prog_elf);
 
-    link(prog_base, &prog_info);
+    resolve_symbols(prog_base, &prog_info);
 
     main_t *main;
     FUN_PTR_CAST(main) = prog_base + prog_elf->entry;
