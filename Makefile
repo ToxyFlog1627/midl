@@ -7,27 +7,29 @@ else
 	CFLAGS += -s
 endif
 
-BUILD_DIR := build
+BUILD_DIR  := build
+OBJECT_DIR := objs
 
 LD_SRC_DIR   := src
-LD_BUILD_DIR := $(BUILD_DIR)
-LD_OBJ_DIR   := $(BUILD_DIR)/$(LD_SRC_DIR)
+LD_BUILD_DIR := $(BUILD_DIR)/loader
+LD_OBJ_DIR   := $(LD_BUILD_DIR)/$(OBJECT_DIR)
 
 SOURCES := $(shell find $(LD_SRC_DIR) -type f -name '*.c')
 LOADER  := $(LD_BUILD_DIR)/loader.so
 OBJECTS := $(patsubst $(LD_SRC_DIR)/%.c, $(LD_OBJ_DIR)/%.o, $(SOURCES))
 
-EXAMPLES := libless single_lib chained_libs multiple_libs reused_lib
+EXAMPLES := libless single_lib chained_libs multiple_libs reused_lib got_init
 
 EX_BIN_CFLAGS := $(CFLAGS) -e main -Wl,--dynamic-linker,$(PWD)/$(LOADER) -nostdlib
 EX_LIB_CFLAGS := $(CFLAGS) -shared -nostdlib
 
 EX_BIN_SRC_DIR   := examples
-EX_BIN_OBJ_DIR   := $(BUILD_DIR)/$(EX_BIN_SRC_DIR)
-EX_BIN_BUILD_DIR := $(BUILD_DIR)/bins
 EX_LIB_SRC_DIR   := examples/libs
-EX_LIB_OBJ_DIR   := $(BUILD_DIR)/$(EX_LIB_SRC_DIR)
-EX_LIB_BUILD_DIR := $(BUILD_DIR)/libs
+
+EX_BIN_BUILD_DIR := $(BUILD_DIR)/$(EX_BIN_SRC_DIR)
+EX_BIN_OBJ_DIR   := $(EX_BIN_BUILD_DIR)/$(OBJECT_DIR)
+EX_LIB_BUILD_DIR := $(BUILD_DIR)/$(EX_LIB_SRC_DIR)
+EX_LIB_OBJ_DIR   := $(EX_LIB_BUILD_DIR)/$(OBJECT_DIR)
 
 
 .PHONY: all
@@ -62,9 +64,10 @@ $(EX_LIB_BUILD_DIR)/libprint.so: $(EX_LIB_OBJ_DIR)/print.o $(EX_LIB_BUILD_DIR)/l
 	@mkdir -p $(@D)
 	$(CC) $(EX_LIB_CFLAGS) -L $(EX_LIB_BUILD_DIR) -Wl,-rpath=$(PWD)/$(EX_LIB_BUILD_DIR) -o $@ $< -lsyscall
 
-$(EX_LIB_BUILD_DIR)/libtime.so: $(EX_LIB_OBJ_DIR)/time.o $(EX_LIB_BUILD_DIR)/libsyscall.so
+$(EX_LIB_BUILD_DIR)/libtime.so: $(EX_LIB_SRC_DIR)/time.c $(EX_LIB_BUILD_DIR)/libsyscall.so
 	@mkdir -p $(@D)
-	$(CC) $(EX_LIB_CFLAGS) -L $(EX_LIB_BUILD_DIR) -Wl,-rpath=$(PWD)/$(EX_LIB_BUILD_DIR) -o $@ $< -lsyscall
+	$(CC) $(CFLAGS) -fPIC -o $(EX_LIB_OBJ_DIR)/time.o -c $(EX_LIB_SRC_DIR)/time.c -fno-stack-protector
+	$(CC) $(EX_LIB_CFLAGS) -L $(EX_LIB_BUILD_DIR) -Wl,-rpath=$(PWD)/$(EX_LIB_BUILD_DIR) -Wl,-init=initialize_time -o $@ $(EX_LIB_OBJ_DIR)/time.o -lsyscall
 
 $(EX_LIB_OBJ_DIR)/%.o: $(EX_LIB_SRC_DIR)/%.c
 	@mkdir -p $(@D)
@@ -90,7 +93,7 @@ $(EX_BIN_BUILD_DIR)/reused_lib: $(EX_BIN_OBJ_DIR)/reused_lib.o $(EX_LIB_BUILD_DI
 	@mkdir -p $(@D)
 	$(CC) $(EX_BIN_CFLAGS) -o $@ $< -Wl,-rpath=$(PWD)/$(EX_LIB_BUILD_DIR) -L $(EX_LIB_BUILD_DIR) -lprint -lsyscall -Wno-unused-parameter
 
-$(EX_BIN_BUILD_DIR)/got_init: $(EX_BIN_OBJ_DIR)/got_init.o $(EX_LIB_BUILD_DIR)/libprint.so $(EX_LIB_BUILD_DIR)/time.so
+$(EX_BIN_BUILD_DIR)/got_init: $(EX_BIN_OBJ_DIR)/got_init.o $(EX_LIB_BUILD_DIR)/libprint.so $(EX_LIB_BUILD_DIR)/libtime.so
 	@mkdir -p $(@D)
 	$(CC) $(EX_BIN_CFLAGS) -o $@ $< -Wl,-rpath=$(PWD)/$(EX_LIB_BUILD_DIR) -L $(EX_LIB_BUILD_DIR) -lprint -ltime -Wno-unused-parameter
 
