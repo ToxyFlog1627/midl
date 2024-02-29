@@ -51,21 +51,20 @@ void load_library(LibInfo *lib_info, const vec_cstr *lib_search_paths, const cha
     for (size_t i = 0; i < lib_elf.segment_entry_num; i++) {
         Segment *seg = &segments[i];
         if (seg->type != SG_LOAD) continue;
-        assert(seg->memory_size == seg->file_size, "Segments with mem_size != file_size are unimplemented.");
 
         if (seg->memory_offset % seg->alignment != 0) {
-            assert(seg->file_offset % seg->alignment == seg->memory_offset % seg->alignment,
-                   "Memory and file offsets must be equally misaligned.");
-
             uint64_t aligned_file_offset = ALIGN(seg->file_offset, seg->alignment);
             uint64_t aligned_memory_offset = ALIGN(seg->memory_offset, seg->alignment);
 
-            seg->file_size += seg->file_offset - aligned_file_offset + seg->file_size;
+            uint64_t size_diff = seg->file_offset - aligned_file_offset + seg->file_size;
+            seg->file_size += size_diff;
+            seg->memory_size += size_diff;
+
             seg->file_offset = aligned_file_offset;
             seg->memory_offset = aligned_memory_offset;
         }
 
-        size_t new_size = seg->memory_offset + seg->file_size;
+        size_t new_size = seg->memory_offset + seg->memory_size;
         if (new_size > memory_size) memory_size = new_size;
     }
 
@@ -73,7 +72,7 @@ void load_library(LibInfo *lib_info, const vec_cstr *lib_search_paths, const cha
     // contiguous chunk of address space which later gets overriden with library data
     char *lib_base = mmap(NULL, memory_size, MAP_PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, NULL, NULL);
     if (((int64_t) lib_base) < 0) {
-        print("Anonymous mmap failed: unable to allocate memory for a shared library.");
+        print("Anonymous mmap failed: unable to allocate memory for a shared library.\n");
         exit(1);
     }
 
@@ -84,7 +83,7 @@ void load_library(LibInfo *lib_info, const vec_cstr *lib_search_paths, const cha
         void *result = mmap(lib_base + seg->memory_offset, seg->file_size, seg->flags, MAP_PRIVATE | MAP_FIXED, fd,
                             seg->file_offset);
         if (((int64_t) result) < 0) {
-            print("mmap failed: unable to load shared library.");
+            print("mmap failed: unable to load shared library.\n");
             exit(1);
         }
     }

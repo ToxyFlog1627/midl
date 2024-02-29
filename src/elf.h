@@ -114,7 +114,7 @@ typedef struct {
 enum DYNAMIC_TYPES {
     DN_NULL,
     DN_NEEDED,
-    DN_PLT_SIZE,
+    DN_PLT_REL_SIZE,
     DN_PLT_GOT,
     DN_HASH,
     DN_STRING_TABLE,

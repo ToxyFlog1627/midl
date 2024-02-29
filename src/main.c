@@ -19,6 +19,7 @@ typedef struct {
 } Args;
 
 typedef int main_t(int argc, char **argv, char **envp);
+typedef void void_fun_t(void);
 
 static vec_lib_info loaded_libs;
 
@@ -58,6 +59,61 @@ static bool is_library_loaded(const char *lib_name) {
     return false;
 }
 
+static void relocate_rela(char *rel_base, const Rela *rela, char *sym_base, const Symbol *sym) {
+    switch (rela->info.v.type) {
+        case RL_64:
+            assert(0, "RL_64 UNIMPLEMENTED");
+            break;
+        case RL_PC32:
+            assert(0, "RL_PC32 UNIMPLEMENTED");
+            break;
+        case RL_GOT32:
+            assert(0, "RL_GOT32 UNIMPLEMENTED");
+            break;
+        case RL_PLT32:
+            assert(0, "RL_PLT32 UNIMPLEMENTED");
+            break;
+        case RL_COPY:
+            assert(0, "RL_COPY UNIMPLEMENTED");
+            break;
+        case RL_GLOB_DAT:
+        case RL_JUMP_SLOT:
+            *((uint64_t *) (rel_base + rela->offset)) = (uint64_t) (sym_base + sym->value);
+            break;
+        case RL_RELATIVE:
+            assert(0, "RL_RELATIVE UNIMPLEMENTED");
+            break;
+        default:
+            print("Unkown relocation type.\n");
+            exit(1);
+            break;
+    }
+}
+
+static void relocate_relas(char *base, const DynamicInfo *info, Rela *relas, size_t relas_count) {
+    Rela *rela = relas;
+    for (size_t i = 0; i < relas_count; i++, rela++) {
+        Symbol *rel_sym = info->symbol_table + rela->info.v.symbol_index;
+        const char *symbol_name = info->string_table + rel_sym->name_offset;
+
+        Symbol *sym = find_symbol(info, symbol_name);
+        if (sym) {
+            relocate_rela(base, rela, base, sym);
+            continue;
+        }
+
+        for (size_t j = 0; j < loaded_libs.length; j++) {
+            LibInfo lib_info = loaded_libs.elements[j];
+            sym = find_symbol(&lib_info.dyn_info, symbol_name);
+            if (sym) {
+                relocate_rela(base, rela, lib_info.base, sym);
+                break;
+            }
+        }
+        assert(sym != NULL, "UNIMPLEMENTED");
+    }
+}
+
 static void resolve_symbols(char *base, const DynamicInfo *info) {
     for (size_t i = 0; i < info->needed_libs.length; i++) {
         const char *lib_name = info->needed_libs.elements[i];
@@ -69,30 +125,15 @@ static void resolve_symbols(char *base, const DynamicInfo *info) {
 
         resolve_symbols(lib_info.base, &lib_info.dyn_info);
 
-        // TODO: init
+        if (lib_info.dyn_info.init) {
+            void_fun_t *init;
+            FUN_PTR_CAST(init) = lib_info.dyn_info.init;
+            init();
+        }
     }
 
-    if (!info->jump_relocs) return;
-    for (Rela *rela = info->jump_relocs; rela->offset != NULL; rela++) {
-        Symbol *rel_sym = info->symbol_table + rela->info.v.symbol_index;
-        const char *symbol_name = info->string_table + rel_sym->name_offset;
-
-        Symbol *sym = find_symbol(info, symbol_name);
-        if (sym) {
-            *((uint64_t *) (base + rela->offset)) = (uint64_t) (base + sym->value);
-            continue;
-        }
-
-        for (size_t j = 0; j < loaded_libs.length; j++) {
-            LibInfo lib_info = loaded_libs.elements[j];
-            sym = find_symbol(&lib_info.dyn_info, symbol_name);
-            if (sym) {
-                *((uint64_t *) (base + rela->offset)) = (uint64_t) (lib_info.base + sym->value);
-                break;
-            }
-        }
-        assert(sym != NULL, "UNIMPLEMENTED");
-    }
+    if (info->jump_relocs) relocate_relas(base, info, info->jump_relocs, info->jump_relocs_count);
+    if (info->relas) relocate_relas(base, info, info->relas, info->rela_count);
 }
 
 void entry() {

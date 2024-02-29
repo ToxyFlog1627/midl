@@ -26,7 +26,8 @@ void get_dynamic_info(DynamicInfo *info, char *base, const ELFHeader *elf) {
             case DN_NEEDED:
                 VECTOR_PUSH(needed_lib_name_idxs, dyn->value);
                 break;
-            case DN_PLT_SIZE:
+            case DN_PLT_REL_SIZE:
+                info->jump_relocs_count = dyn->value / sizeof(Rela);
                 break;
             case DN_PLT_GOT:
                 info->plt_got = (uint64_t *) ptr;
@@ -41,9 +42,10 @@ void get_dynamic_info(DynamicInfo *info, char *base, const ELFHeader *elf) {
                 info->symbol_table = (Symbol *) ptr;
                 break;
             case DN_RELA:
-                assert(false, "DN_RELA UNIMPLEMENTED");
+                info->relas = (Rela *) ptr;
                 break;
             case DN_RELA_SIZE:
+                info->rela_count = dyn->value / sizeof(Rela);
                 break;
             case DN_RELA_ENTRY_SIZE:
                 assert(dyn->value == sizeof(Rela), "Size mismatch between struct Rela and DN_RELA_ENTRY_SIZE.");
@@ -54,7 +56,7 @@ void get_dynamic_info(DynamicInfo *info, char *base, const ELFHeader *elf) {
                 assert(dyn->value == sizeof(Symbol), "Size mismatch between struct Symbol and DN_SYMBOL_ENTRY_SIZE.");
                 break;
             case DN_INIT:
-                assert(false, "DN_INIT UNIMPLEMENTED");
+                info->init = ptr;
                 break;
             case DN_FINI:
                 assert(false, "DN_FINI UNIMPLEMENTED");
@@ -78,8 +80,6 @@ void get_dynamic_info(DynamicInfo *info, char *base, const ELFHeader *elf) {
                 assert(false, "DN_REL_ENTRY_SIZE UNIMPLEMENTED");
                 break;
             case DN_PLT_REL_TYPE:
-                assert(dyn->value == RL_JUMP_SLOT,
-                       "UNIMPLEMENTED: the only supported relocation type is REL_JUMP_SLOT.");
                 break;
             case DN_DEBUG:
                 break;
@@ -141,7 +141,7 @@ void get_dynamic_info(DynamicInfo *info, char *base, const ELFHeader *elf) {
             case DN_FLAGS_1:
                 break;
             default:
-                print("WARNING: Dynamic entry of unkown type.\n");  // TODO: print type
+                print("WARNING: Dynamic entry of unkown type.\n");
                 break;
         }
     }
