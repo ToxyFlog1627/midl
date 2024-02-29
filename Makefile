@@ -46,7 +46,7 @@ build: $(LOADER)
 examples: $(patsubst %, $(EX_BIN_BUILD_DIR)/%, $(EXAMPLES))
 
 $(LOADER): $(OBJECTS)
-	$(CC) $(CFLAGS) -e entry -nostdlib -o $@ $^ -static-pie
+	$(CC) $(CFLAGS) -e entry -nostdlib -o $@ $^ -shared -Wl,-z,now -Wl,-Bstatic -Wl,-no-dynamic-linker -Wl,--dynamic-list=$(PWD)/export.txt
 
 $(LD_OBJ_DIR)/%.o: $(LD_SRC_DIR)/%.c
 	@mkdir -p $(@D)

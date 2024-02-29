@@ -70,7 +70,7 @@ typedef struct {
     uint64_t file_size;
     uint64_t memory_size;
     uint64_t alignment;
-} Segment;
+} ELFSegment;
 
 // Rela
 
@@ -90,7 +90,7 @@ typedef struct {
         uint64_t raw;
     } info;
     int64_t addend;
-} Rela;
+} ELFRela;
 
 // Symbol
 
@@ -107,7 +107,7 @@ typedef struct {
     uint16_t section_index;
     uint64_t value;
     uint64_t size;
-} Symbol;
+} ELFSymbol;
 
 // Dynamic
 
@@ -158,7 +158,7 @@ enum DYNAMIC_TYPES {
 typedef struct {
     int64_t type;
     uint64_t value;
-} Dynamic;
+} ELFDynamic;
 
 // https://sourceware.org/legacy-ml/binutils/2006-10/msg00377.html
 // GNU Hash Table:
@@ -178,6 +178,6 @@ typedef struct {
 
 // Helpers
 
-void check_elf_header(ELFHeader *header);
+void check_elf_header(const ELFHeader *header);
 
 #endif  // ELF_H

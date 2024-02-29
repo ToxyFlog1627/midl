@@ -1,61 +1,54 @@
 # MIDL - MInimal Dynamic Linker
-MIDL is a small dynamic linker written for 64bit Intel Linux in order to learn more about shared libraries and ELF.
+MIDL is a small dynamic linker written for 64-bit Intel Linux in order to learn more about shared libraries and ELF. \
+It only implements a small portion of all cases, just enough to make provided examples work.
 
-## What is a dynamic linker?
-Dynamic linker is a program responsible for loading executable and linking it with shared libraries at runtime, such as glibc's `ld-linux`. \
-A dynamically-linked ELF contains `PT_INTERP` field in the header which specifies a path to the interpreter. \
-When file is executed, kernel loads an ELF into the memory, loads an appropriate interpreter(e.g. dynamic linker) and calls its entry point. \
-Interpreter will then prepare the environment before passing the execution to the ELF itself. Preparations includes but not limited to loading libraries and linking them.
+## Compiling the linker
 
-## Interpreter: shared object vs executable
+Linked must be of type `ELF 64-bit LSB shared object, x86-64, version 1 (SYSV), static-pie linked`:
+1. `static-pie` means that it doesn't need neither shared libraries nor dynamic linker.
+2. From ELF specification linker must be shared object in order to be loaded anywhere in the memory.
 
-If interpreter is an executable, it will be loaded at a fixed address, therefore it is possible that it will overlap with with another ELF.
+Therefore, the following flags have to be used: \
+`-shared -Wl,-z,now -Wl,-Bstatic -Wl,-no-dynamic-linker -Wl,--dynamic-list=export.txt`\
+where `export.txt` is a list of exported symbol names (for now there are none), which makes other symbols internal.
 
-If it is a shared object (i.e. shared library) it is position independent, thus can be loaded anywhere. Although it is easier to deal with, it has its own downsides, namely having to start the execution with linking itself.
+## Using the linker
 
-## Building a dynamic linker
-Flags required to build linker:
-1. `-pie` to make it position independent, because dynamic linker can get loaded anywhere in the memory.
-2. `-Wl,--no-dynamic-linker` to make it statically-linked \
-Alternatively, `-pie -Wl,--no-dynamic-linker` can be replaced with `-static-pie`.
-3. `-nostdlib` to disable standard library, because it must not dependent on shared libraries
-4. (opt) `-e func_name` to change entry point
+In order for the ELF to use non-default linker the following flags has to be used(when compiling with `gcc`): `-Wl,--dynamic-linker,PATH`. \
+Also, because it does NOT support standard library it has to be disabled with `-nostdlib`.
 
-If you have built executable correctly, running `file` on it would result in `ELF 64-bit LSB pie executable, x86-64, version 1 (SYSV), static-pie linked`
+## Linking process
 
-Entry point must end with an exit syscall, exit code should be set to main's return value.
+The linking process itself is quite easy, although there is little documentation and examples on it. 
 
-Entry point:
-1. Read main() arguments, i.e. `argc, argv, envp`. They are located on the stack right after old stack frame pointer(which is NULL as entry is the first frame).
-2. Find out where the binary is mapped. It can be obtained from auxillary variables(see `man getauxval` for types/values) which are located on the stack right after `envp`. They are stored as a series of `type, value` pairs, each field is word-sized. Specifically from `AT_PHDR`, which contains the address of the mapped program header.
-3. Now we can offset mapped memory by ELF's entry offset to execute binary.
+1. Get arguments (argc, argv, etc.), which are located on the stack right after the old stack frame address (which is null because it is the first frame).
+2. Locate ELF to parse its DYNAMIC section. The base address can be derived from Program header (PHDR) found in auxillary variables(`man getauxval`) of type `PHDR`.
+3. Recursively load all needed libraries from `NEEDED` entry of `DYNAMIC`:
+    1.  Load new libraries by first finding continuous address space which fits it using anonymous `mmap`, and then overriding it with file-backed `MAP_FIXED` `mmap`s.
+    2. Run appropriate initialization functions. When compiling, they can be provided with `-Wl,-init=FUNC_NAME`.
+    3. Perform relocations by finding matching symbol names across loaded libraries.
 
-### -pie, -fpic, -fpie, -fPIC, -fPIE, -static-pie
-What is the differences between all these flags?
-1. `-fpie`(`-fPIE`) imply that you are building an executable, so it disables interposition, whereas `-fpic`(`-fPIC`) enables it. \
-2. The case sets the data mode, lowercase for `-msmall-data` and uppercase for `-mlarge-data`. More on this in [gcc's man page](https://man7.org/linux/man-pages/man1/gcc.1.html).
+### Finding symbols
 
-Flags prefixed with `-f` use specified mode *if possible*, whereas `-pie` always produces PIE.
+In order to speed up the process of finding symbols by symbol names ELFs contain hash tables.
 
-`-static-pie` is basically an alias for `-static -pie --no-dynamic-linker -z text`.
+GNU has introduced its own hash table for ELF, which is much more efficient than the regular one, although more complex. \
+Looking up a symbol access multiple data structures as follows:
+1. Check 2-bit bloom filter with symbol name's hash.
+2. Find hash bucket which gives index into both symbol table and hash chain.
+3. Follow hash chain, for each entry check whether the hash matches (ignoring first bit).
+4. If hashes match, compare symbol name with one from symbol table at the current index and return.
+5. If it doesn't continue searching until the first bit of hash chain is set, it indicates the end of chain.
 
-### Linker, Loader, Dynamic Linker and Interpreter
+### Relocating
 
-*Interpreter* is a shared object (or an executable) which is ran before the ELF to prepare the environment. 
+There are two ways of handling PLT entries - load them during init or lazily.
 
-*Linker* is an executable which **links** object files together, e.g. `gcc a.o b.o c.o -o a.out`(acts as `ld`).
+The easier option is to handle them at initialization which means iterating over all relocations for all the libraries.
 
-*Dynamic linker* is a shared object or an executable which links the main ELF executable with shared libraries at runtime(i.e. **dynamically**).
-
-*Loader* is a shared object or an executable which **loads** dynamic loader.
-
-
-## Usage
-
-Compilation and linking flags for executables that use this linker.
-1. Disable standard library with `--nostdlib` to disable standard linker (i.e. `ld-loader`).
-2. Set path to dynamic linker with `-Wl,--dynamic-linker,PATH_TO_LINKER`
-3. Set runtime library search path with `-Wl,-rpath,PATH_TO_DIRECTORY_WITH_LIBRARIES`
+For lazy loading, which is usually faster, linker has to set up handler at the beginning of GOT before passing control to the program: \
+After the initial setup first calls to function through PLT will save PLT offset to the stack and jump to the handler. \
+Handler then performs the necessary relocations, so that the same call will be immediately redirected to the corresponding function.
 
 # References
 [32-bit ELF reference specification](https://refspecs.linuxfoundation.org/elf/elf.pdf) \
