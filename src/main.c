@@ -61,7 +61,7 @@ static void perform_rela_relocations(char *base, const Dynamic *dynamic, ELFRela
 
         ELFSymbol *symbol = find_symbol(dynamic, symbol_name);
         if (symbol) {
-            relocate_rela(base, rela, base, symbol);
+            relocate_rela(base, rela, base, symbol, symbol_name);
             continue;
         }
 
@@ -69,7 +69,7 @@ static void perform_rela_relocations(char *base, const Dynamic *dynamic, ELFRela
             Library library = loaded_libraries.data[j];
             symbol = find_symbol(&library.dynamic, symbol_name);
             if (symbol) {
-                relocate_rela(base, rela, library.base, symbol);
+                relocate_rela(base, rela, library.base, symbol, symbol_name);
                 break;
             }
         }

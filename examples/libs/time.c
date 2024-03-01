@@ -1,13 +1,13 @@
 #include "time.h"
 #include "syscall.h"
 
-long int time;
+long int utime;
 
 void update_time() {
     timeval tv;
     timezone tz;
     gettimeofday(&tv, &tz);
-    time = tv.sec;
+    utime = tv.usec;
 }
 
 // called via init mechanism

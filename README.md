@@ -50,6 +50,15 @@ For lazy loading, which is usually faster, linker has to set up handler at the b
 After the initial setup first calls to function through PLT will save PLT offset to the stack and jump to the handler. \
 Handler then performs the necessary relocations, so that the same call will be immediately redirected to the corresponding function.
 
+### R_x_COPY and R_x_GLOB_DAT
+
+These two types of relocations work together in order to have a single instance of a global variable. They do so by copying initial value into application's variable and redirecting shared library's reads and writes to that same variable, effectively sharing it between the executable and the library.
+
+COPY relocations are found in executables. They simply, as the name implies, copy the initial value from library variable to the local one. \
+GLOB_DAT relocations are placed in shared library. They write application symbol's address into local variable, thus thus redirecting library's variable to application's copy.
+
+Thus, after relocations only application's variable is used and shared between all ELFs.
+
 # References
 [32-bit ELF reference specification](https://refspecs.linuxfoundation.org/elf/elf.pdf) \
 [64-bit ELF specification](https://uclibc.org/docs/elf-64-gen.pdf) \
@@ -59,4 +68,5 @@ Handler then performs the necessary relocations, so that the same call will be i
 [Other dynamic loader](https://github.com/Ferdi265/dynamic-loader) \
 [GNU Hash section layout summary](https://sourceware.org/legacy-ml/binutils/2006-10/msg00377.html) \
 [The process of looking up using GNU Hash (at 1.5.3 The GNU-style Hash Table)](https://www.akkadia.org/drepper/dsohowto.pdf) \
-[GNU's ld-linux](https://github.com/bminor/glibc/blob/master/elf/rtld.c)
+[GNU's ld-linux](https://github.com/bminor/glibc/blob/master/elf/rtld.c) \
+[R_x_COPY and R_x_GLOB_DAT explanation](https://netwinder.osuosl.org/users/p/patb/public_html/elf_relocs.html)

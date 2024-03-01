@@ -1,7 +1,7 @@
 #ifndef _TIME_H_
 #define _TIME_H_
 
-extern long int time;
+extern long int utime;
 
 extern void update_time();
 
